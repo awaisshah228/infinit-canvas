@@ -615,6 +615,8 @@ function getNearbyNodes(x1, y1, x2, y2, excludeIds) {
   for (var i = 0; i < indices.length; i++) {
     var n = nodes[indices[i]];
     if (n.hidden || excludeIds[n.id]) continue;
+    // Skip group nodes — they are containers, not obstacles
+    if (n.type === 'group') continue;
     result.push(n);
   }
   return result;
@@ -662,6 +664,7 @@ function routeEdgesAsync() {
     var sn = nodeLookup[edge.source];
     var tn = nodeLookup[edge.target];
     if (!sn || !tn || sn.hidden || tn.hidden) continue;
+
 
     var sh = findEdgeHandle(sn, 'source', edge.sourceHandle);
     var th = findEdgeHandle(tn, 'target', edge.targetHandle);

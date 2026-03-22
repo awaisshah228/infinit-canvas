@@ -29,6 +29,7 @@ export default function BasicFlow() {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
+      fitView
       height="350px"
     >
       <Controls />

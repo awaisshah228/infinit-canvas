@@ -4,10 +4,19 @@ import { useCanvasStore } from '../../context/InfiniteCanvasContext.js';
 const DEFAULT_NODE_WIDTH = 160;
 const DEFAULT_NODE_HEIGHT = 60;
 
-function resolveHandlePosition(node, handleType, handleId) {
+function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
   const nw = node.width || DEFAULT_NODE_WIDTH;
   const nh = node.height || DEFAULT_NODE_HEIGHT;
   const pos = node._absolutePosition || node.position;
+
+  // Check handle registry first (measured DOM positions from <Handle> components)
+  if (handleRegistry) {
+    const key = `${node.id}__${handleId || handleType}`;
+    const registered = handleRegistry.get(key);
+    if (registered && registered.x !== undefined && registered.y !== undefined) {
+      return { x: pos.x + registered.x, y: pos.y + registered.y, position: registered.position || (handleType === 'source' ? 'right' : 'left') };
+    }
+  }
 
   if (node.handles && node.handles.length) {
     for (const h of node.handles) {
@@ -65,8 +74,9 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
   const tgtNode = nodes.find((n) => n.id === edge.target);
   if (!srcNode || !tgtNode) return null;
 
-  const src = resolveHandlePosition(srcNode, 'source', edge.sourceHandle);
-  const tgt = resolveHandlePosition(tgtNode, 'target', edge.targetHandle);
+  const handleRegistry = store.handleRegistryRef?.current;
+  const src = resolveHandlePosition(srcNode, 'source', edge.sourceHandle, handleRegistry);
+  const tgt = resolveHandlePosition(tgtNode, 'target', edge.targetHandle, handleRegistry);
 
   // Use routed points from store if available
   const routedEdges = store.routedEdges || store.edges;
@@ -112,15 +122,23 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
       const hitRadius = 20 / cam.zoom;
       let targetNode = null;
       let targetHandleId = null;
+      const registry = store.handleRegistryRef?.current;
       for (const n of store.nodesRef.current) {
         if (n.hidden) continue;
         const tnw = n.width || DEFAULT_NODE_WIDTH;
         const tnh = n.height || DEFAULT_NODE_HEIGHT;
         const tp = n._absolutePosition || n.position;
-        const handles = n.handles || [
+        // Build handle list: prefer registry, then node.handles, then defaults
+        const registeredHandles = [];
+        if (registry) {
+          for (const [, h] of registry) {
+            if (h.nodeId === n.id) registeredHandles.push(h);
+          }
+        }
+        const handles = registeredHandles.length > 0 ? registeredHandles : (n.handles || [
           { type: 'target', position: 'left' },
           { type: 'source', position: 'right' },
-        ];
+        ]);
         for (const h of handles) {
           let thx, thy;
           if (h.x !== undefined && h.y !== undefined) {

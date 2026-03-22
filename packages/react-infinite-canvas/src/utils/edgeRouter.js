@@ -101,6 +101,8 @@ export function buildObstacles(nodes, excludeIds) {
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
     if (n.hidden || (excludeIds && excludeIds.has(n.id))) continue;
+    // Skip group/parent nodes — they are containers, not obstacles
+    if (n.type === 'group') continue;
     const pos = n._absolutePosition || n.position;
     const nw = n.width || n.measured?.width || DEFAULT_NODE_WIDTH;
     const nh = n.height || n.measured?.height || DEFAULT_NODE_HEIGHT;
@@ -449,6 +451,7 @@ export function computeRoutedEdges(nodes, edges) {
     const tgtNode = nodeLookup[edge.target];
     if (!srcNode || !tgtNode) return edge;
     if (srcNode.hidden || tgtNode.hidden) return edge;
+
 
     const srcHandle = getHandlePos(srcNode, 'source', edge.sourceHandle);
     const tgtHandle = getHandlePos(tgtNode, 'target', edge.targetHandle);

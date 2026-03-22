@@ -6,4 +6,4 @@ dist/
 
 # Local reference copies
 excalidraw/
-xyflow/
+.next/

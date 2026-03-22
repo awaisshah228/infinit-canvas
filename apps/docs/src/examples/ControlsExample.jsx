@@ -26,6 +26,7 @@ export default function ControlsExample() {
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      fitView
       height="350px"
     >
       <Controls />

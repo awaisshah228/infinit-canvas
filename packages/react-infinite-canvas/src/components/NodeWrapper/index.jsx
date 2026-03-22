@@ -105,6 +105,20 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           y: store.snapGrid[1] * Math.round(newPos.y / store.snapGrid[1]),
         };
       }
+      // Clamp to parent boundary if extent === 'parent'
+      if (node.parentId && node.extent === 'parent') {
+        const parent = store.nodesRef.current.find((n) => n.id === node.parentId);
+        if (parent) {
+          const pw = parent.width || 160;
+          const ph = parent.height || 60;
+          const cw = node.width || node.measured?.width || 160;
+          const ch = node.height || node.measured?.height || 60;
+          newPos = {
+            x: Math.max(0, Math.min(newPos.x, pw - cw)),
+            y: Math.max(0, Math.min(newPos.y, ph - ch)),
+          };
+        }
+      }
 
       const changes = [{ id: node.id, type: 'position', position: newPos, dragging: true }];
       for (const s of dragRef.current.selectedStarts) {
@@ -182,7 +196,8 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           position: 'absolute',
           left: pos.x,
           top: pos.y,
-          pointerEvents: 'all',
+          zIndex: node.type === 'group' ? 0 : (node.zIndex || 1),
+          pointerEvents: node.type === 'group' ? 'none' : 'all',
           cursor: node.dragging ? 'grabbing' : 'grab',
           userSelect: 'none',
           outline: 'none',

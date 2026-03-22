@@ -99,7 +99,15 @@ export default function InfiniteCanvas({
   // Compute which nodes/edges have React renderers
   // Nodes/edges WITHOUT a type stay canvas-rendered (worker handles them)
   const customNodes = useMemo(() => {
-    return nodes.filter((n) => n.type && customNodeTypes[n.type]);
+    const filtered = nodes.filter((n) => n.type && customNodeTypes[n.type]);
+    // Sort: parent/group nodes first (lower z-index) so children render on top
+    return filtered.sort((a, b) => {
+      const aIsGroup = a.type === 'group' || (!a.parentId && filtered.some((n) => n.parentId === a.id));
+      const bIsGroup = b.type === 'group' || (!b.parentId && filtered.some((n) => n.parentId === b.id));
+      if (aIsGroup && !bIsGroup) return -1;
+      if (!aIsGroup && bIsGroup) return 1;
+      return 0;
+    });
   }, [nodes, customNodeTypes]);
 
   const customEdges = useMemo(() => {

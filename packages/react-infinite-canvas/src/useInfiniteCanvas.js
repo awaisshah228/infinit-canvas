@@ -126,6 +126,7 @@ export default function useInfiniteCanvas({
   const cardsRef = useRef([...cards]);
   const nodesRef = useRef([...nodes]);
   const edgesRef = useRef([...edges]);
+  const handleRegistryRef = useRef(new Map()); // key: `${nodeId}__${handleId||type}` → { nodeId, id, type, position, x, y }
   const draggingRef = useRef(false);
   const lastPtRef = useRef(null);
   const [canvasReady, setCanvasReady] = useState(false);
@@ -232,13 +233,60 @@ export default function useInfiniteCanvas({
   // Ref to hold last resolved nodes
   const resolvedNodesRef = useRef([]);
 
+  // Enrich nodes with measured handle positions from the registry
+  const injectRegisteredHandles = useCallback((resolvedNodes) => {
+    const registry = handleRegistryRef.current;
+    if (!registry || registry.size === 0) return resolvedNodes;
+    // Group registry entries by nodeId
+    const byNode = {};
+    for (const [, entry] of registry) {
+      if (!byNode[entry.nodeId]) byNode[entry.nodeId] = [];
+      byNode[entry.nodeId].push({ id: entry.id, type: entry.type, position: entry.position, x: entry.x, y: entry.y });
+    }
+    return resolvedNodes.map((n) => {
+      const registered = byNode[n.id];
+      if (registered && registered.length > 0) {
+        return { ...n, handles: registered };
+      }
+      return n;
+    });
+  }, []);
+
+  // Re-sync nodes to worker (called when handle registry changes)
+  const syncNodesToWorker = useCallback(() => {
+    // Skip during drag — incremental updates handle it
+    if (dragNodeRef.current) return;
+    const enriched = injectRegisteredHandles(resolvedNodesRef.current);
+    workerRef.current?.postMessage({ type: 'nodes', data: { nodes: enriched } });
+  }, [injectRegisteredHandles]);
+
   useEffect(() => {
+    // During active drag, merge new React state into nodesRef without losing
+    // in-place drag position mutations, then skip the full worker sync
+    // (the worker already has correct positions via incremental nodePositions).
+    if (dragNodeRef.current) {
+      // Merge: keep dragged node positions from nodesRef, take everything else from React state
+      const dragId = dragNodeRef.current.id;
+      const draggedIds = new Set([dragId, ...dragNodeRef.current.selectedStarts.map(s => s.id)]);
+      const oldPositions = {};
+      for (const n of nodesRef.current) {
+        if (draggedIds.has(n.id)) oldPositions[n.id] = { ...n.position };
+      }
+      nodesRef.current = [...nodes];
+      for (const n of nodesRef.current) {
+        if (oldPositions[n.id]) n.position = oldPositions[n.id];
+      }
+      resolvedNodesRef.current = resolveAbsolutePositions(nodesRef.current);
+      return;
+    }
+
     nodesRef.current = [...nodes];
     const resolved = resolveAbsolutePositions(nodes);
     resolvedNodesRef.current = resolved;
-    // Canvas worker handles routing internally — just send nodes
-    workerRef.current?.postMessage({ type: 'nodes', data: { nodes: resolved } });
-  }, [nodes, resolveAbsolutePositions]);
+    // Canvas worker handles routing internally — just send nodes (with any registered handles)
+    const enriched = injectRegisteredHandles(resolved);
+    workerRef.current?.postMessage({ type: 'nodes', data: { nodes: enriched } });
+  }, [nodes, resolveAbsolutePositions, injectRegisteredHandles]);
 
   useEffect(() => {
     edgesRef.current = [...edges];
@@ -259,16 +307,26 @@ export default function useInfiniteCanvas({
   }, []);
 
   const findNodeAt = useCallback((wx, wy) => {
-    const nds = nodesRef.current;
+    const nds = resolvedNodesRef.current.length > 0 ? resolvedNodesRef.current : nodesRef.current;
+    // Iterate backwards so nodes rendered later (on top) are hit first.
+    // Skip group nodes in first pass — prefer child nodes over their parent group.
+    let groupHit = null;
     for (let i = nds.length - 1; i >= 0; i--) {
       const n = nds[i];
       if (n.hidden) continue;
+      const pos = n._absolutePosition || n.position;
       const nw = n.width || DEFAULT_NODE_WIDTH;
       const nh = n.height || DEFAULT_NODE_HEIGHT;
-      if (wx >= n.position.x && wx <= n.position.x + nw &&
-          wy >= n.position.y && wy <= n.position.y + nh) return n;
+      if (wx >= pos.x && wx <= pos.x + nw &&
+          wy >= pos.y && wy <= pos.y + nh) {
+        if (n.type === 'group') {
+          if (!groupHit) groupHit = n;
+          continue; // Keep looking for a child node on top
+        }
+        return n;
+      }
     }
-    return null;
+    return groupHit;
   }, []);
 
   const resolveHandlePos = useCallback((handle, node) => {
@@ -540,13 +598,40 @@ export default function useInfiniteCanvas({
           // Only multi-drag when Shift is held AND node was already selected
           // (nodesRef is stale after onNodesChange — can't trust .selected on other nodes)
           const isMultiDrag = isMulti && node.selected;
+          // Pre-compute parent clamp bounds for child nodes with extent='parent'
+          let parentClamp = null;
+          if (node.parentId && node.extent === 'parent') {
+            const parent = nodesRef.current.find((n) => n.id === node.parentId);
+            if (parent) {
+              const pw = parent.width || DEFAULT_NODE_WIDTH;
+              const ph = parent.height || DEFAULT_NODE_HEIGHT;
+              const cw = node.width || node.measured?.width || DEFAULT_NODE_WIDTH;
+              const ch = node.height || node.measured?.height || DEFAULT_NODE_HEIGHT;
+              parentClamp = { minX: 0, minY: 0, maxX: pw - cw, maxY: ph - ch };
+            }
+          }
           dragNodeRef.current = {
             id: node.id,
             startPos: { ...node.position },
             startMouse: { x: world.x, y: world.y },
+            parentClamp,
+            parentId: node.parentId || null,
             selectedStarts: isMultiDrag
               ? nodesRef.current.filter((n) => n.selected && n.id !== node.id)
-                  .map((n) => ({ id: n.id, startPos: { ...n.position } }))
+                  .map((n) => {
+                    let sc = null;
+                    if (n.parentId && n.extent === 'parent') {
+                      const sp = nodesRef.current.find((nd) => nd.id === n.parentId);
+                      if (sp) {
+                        const pw = sp.width || DEFAULT_NODE_WIDTH;
+                        const ph = sp.height || DEFAULT_NODE_HEIGHT;
+                        const cw = n.width || n.measured?.width || DEFAULT_NODE_WIDTH;
+                        const ch = n.height || n.measured?.height || DEFAULT_NODE_HEIGHT;
+                        sc = { minX: 0, minY: 0, maxX: pw - cw, maxY: ph - ch };
+                      }
+                    }
+                    return { id: n.id, startPos: { ...n.position }, parentClamp: sc, parentId: n.parentId || null };
+                  })
               : [],
           };
           wrapRef.current?.setPointerCapture(e.pointerId);
@@ -678,7 +763,7 @@ export default function useInfiniteCanvas({
       return;
     }
 
-    // Node drag (multi-drag support + snap-to-grid + nodeExtent clamping)
+    // Node drag (multi-drag support + snap-to-grid + nodeExtent + parent clamping)
     if (dragNodeRef.current) {
       const world = screenToWorld(e.clientX, e.clientY);
       const drag = dragNodeRef.current;
@@ -689,12 +774,22 @@ export default function useInfiniteCanvas({
       if (snapToGrid) pos = snapPos(pos, snapGrid);
       if (nodeExtent) pos = clampPosition(pos, nodeExtent);
 
+      // Clamp child to parent boundary (cached at drag start)
+      if (drag.parentClamp) {
+        const c = drag.parentClamp;
+        pos = { x: Math.max(c.minX, Math.min(pos.x, c.maxX)), y: Math.max(c.minY, Math.min(pos.y, c.maxY)) };
+      }
+
       // Build position updates for dragged nodes
       const posUpdates = [{ id: drag.id, position: pos }];
       for (const s of drag.selectedStarts) {
         let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
         if (snapToGrid) sPos = snapPos(sPos, snapGrid);
         if (nodeExtent) sPos = clampPosition(sPos, nodeExtent);
+        if (s.parentClamp) {
+          const c = s.parentClamp;
+          sPos = { x: Math.max(c.minX, Math.min(sPos.x, c.maxX)), y: Math.max(c.minY, Math.min(sPos.y, c.maxY)) };
+        }
         posUpdates.push({ id: s.id, position: sPos });
       }
 
@@ -705,13 +800,48 @@ export default function useInfiniteCanvas({
         if (n) {
           n.position = u.position;
           n.dragging = true;
+          // Compute absolute position for child nodes with parentId
+          let absPos = u.position;
+          if (n.parentId) {
+            let parent = nodesRef.current.find(nd => nd.id === n.parentId);
+            let absX = u.position.x, absY = u.position.y;
+            while (parent) {
+              absX += parent.position.x;
+              absY += parent.position.y;
+              parent = parent.parentId ? nodesRef.current.find(nd => nd.id === parent.parentId) : null;
+            }
+            absPos = { x: absX, y: absY };
+          }
           workerUpdates.push({
             id: u.id,
             position: u.position,
-            _absolutePosition: u.position,
+            _absolutePosition: absPos,
             width: n.width,
             height: n.height,
             dragging: true,
+            selected: n.selected,
+          });
+        }
+      }
+
+      // When dragging a group/parent, also update children's absolute positions
+      const draggedIds = new Set(posUpdates.map(u => u.id));
+      for (const n of nodesRef.current) {
+        if (n.parentId && draggedIds.has(n.parentId) && !draggedIds.has(n.id)) {
+          let parent = nodesRef.current.find(nd => nd.id === n.parentId);
+          let absX = n.position.x, absY = n.position.y;
+          while (parent) {
+            absX += parent.position.x;
+            absY += parent.position.y;
+            parent = parent.parentId ? nodesRef.current.find(nd => nd.id === parent.parentId) : null;
+          }
+          workerUpdates.push({
+            id: n.id,
+            position: n.position,
+            _absolutePosition: { x: absX, y: absY },
+            width: n.width,
+            height: n.height,
+            dragging: false,
             selected: n.selected,
           });
         }
@@ -806,7 +936,9 @@ export default function useInfiniteCanvas({
     // Node drag end — commit final positions to React state
     if (dragNodeRef.current) {
       const drag = dragNodeRef.current;
-      dragNodeRef.current = null;
+      // Keep dragNodeRef set until after state commit so the useEffect
+      // doesn't send a stale full-node sync before React applies the
+      // final positions.
       if (onNodesChangeRef.current) {
         // Send final positions from nodesRef (updated in-place during drag)
         const dragNode = nodesRef.current.find(n => n.id === drag.id);
@@ -827,6 +959,10 @@ export default function useInfiniteCanvas({
         }
         onNodesChangeRef.current(changes);
       }
+      // Clear drag ref AFTER React processes the state update and useEffect runs.
+      // requestAnimationFrame fires after React commit + effects, ensuring the
+      // useEffect sees dragNodeRef as set and merges positions correctly.
+      requestAnimationFrame(() => { dragNodeRef.current = null; });
       const node = nodesRef.current.find((n) => n.id === drag.id);
       if (node) onNodeDragStopRef.current?.(e, node);
       return;
@@ -1168,7 +1304,7 @@ export default function useInfiniteCanvas({
 
   // Store object shared via context
   const store = useMemo(() => ({
-    wrapRef, canvasRef, workerRef, cameraRef, nodesRef, edgesRef,
+    wrapRef, canvasRef, workerRef, cameraRef, nodesRef, edgesRef, handleRegistryRef, syncNodesToWorker,
     onNodesChangeRef, onEdgesChangeRef,
     sendCamera, screenToWorld,
     viewportListeners, selectionListeners,
@@ -1179,7 +1315,7 @@ export default function useInfiniteCanvas({
     get routedEdges() { return routedEdgesForReact; },
     get viewport() { return viewport; },
     get connection() { return connection; },
-  }), [nodes, edges, routedEdgesForReact, viewport, connection, sendCamera, screenToWorld, viewportListeners, selectionListeners, zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent, defaultEdgeOptions, edgeRouting]);
+  }), [nodes, edges, routedEdgesForReact, viewport, connection, sendCamera, screenToWorld, syncNodesToWorker, viewportListeners, selectionListeners, zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent, defaultEdgeOptions, edgeRouting]);
 
   return {
     wrapRef, canvasRef, canvasReady,

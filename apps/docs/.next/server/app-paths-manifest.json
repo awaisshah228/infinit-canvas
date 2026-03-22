@@ -1,7 +1,0 @@
-{
-  "/docs/quickstart/page": "app/docs/quickstart/page.js",
-  "/docs/nodes/page": "app/docs/nodes/page.js",
-  "/docs/custom-nodes/page": "app/docs/custom-nodes/page.js",
-  "/docs/edges/page": "app/docs/edges/page.js",
-  "/docs/controls/page": "app/docs/controls/page.js"
-}

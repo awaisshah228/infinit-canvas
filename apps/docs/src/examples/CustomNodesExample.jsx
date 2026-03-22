@@ -64,6 +64,7 @@ export default function CustomNodesExample() {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
+      fitView
       height="350px"
     >
       <Controls />

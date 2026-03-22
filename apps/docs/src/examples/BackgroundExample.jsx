@@ -22,6 +22,7 @@ export default function BackgroundExample() {
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      fitView
       height="350px"
     >
       <Controls />
