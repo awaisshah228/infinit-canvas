@@ -141,6 +141,7 @@ export default function StressTestFlow() {
           onConnect={onConnect}
           height="calc(100vh - 100px)"
           zoomMin={0.02}
+          edgeRouting={nodes.length < 5000}
           onHudUpdate={onHudUpdate}
           onNodesProcessed={onNodesProcessed}
         />

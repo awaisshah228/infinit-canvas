@@ -75,7 +75,7 @@ export default function InfiniteCanvas({
   edgesReconnectable, elevateNodesOnSelect, elevateEdgesOnSelect,
 
   // Edge routing (obstacle avoidance)
-  edgeRouting = false,
+  edgeRouting = true,
 
   // HUD
   onHudUpdate, onNodesProcessed, showHud = true, showHint = true,
