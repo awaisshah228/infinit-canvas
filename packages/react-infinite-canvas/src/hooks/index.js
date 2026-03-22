@@ -350,9 +350,5 @@ export function useStoreApi() {
 }
 
 // ── useNodeId ────────────────────────────────────────────────────
-// In React Flow, this returns the current node ID inside a custom node component.
-// Since we use canvas rendering (not DOM nodes), this is a stub that returns null.
-// It's provided for API compatibility.
-export function useNodeId() {
-  return null;
-}
+// Returns the current node ID inside a custom node component.
+export { useNodeId } from '../context/NodeIdContext.js';

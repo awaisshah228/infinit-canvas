@@ -26,7 +26,7 @@ export {
   useInternalNode,        // Access internal node data
   useStore,               // Direct store access (selector pattern)
   useStoreApi,            // Imperative store access { getState() }
-  useNodeId,              // Current node ID (stub — canvas-based)
+  useNodeId,              // Current node ID inside custom node component
 } from './hooks/index.js';
 
 // ─── Utilities ───────────────────────────────────────────────────
@@ -64,8 +64,42 @@ export {
   reconnectEdge,          // Move edge source/target to a new node
 } from './utils/paths.js';
 
+// Edge routing (obstacle avoidance)
+export {
+  computeRoutedEdges,     // Compute routes for all edges avoiding node obstacles
+  routeSinglePath,        // Route a single path between two points
+  routedPointsToPath,     // Convert routed waypoints to SVG path string
+  getRoutedLabelPosition, // Get label position along a routed path
+  buildObstacles,         // Build obstacle rectangles from nodes
+} from './utils/edgeRouter.js';
+
 // ─── Components ──────────────────────────────────────────────────
 export { default as MiniMap } from './components/MiniMap/index.jsx';
 export { default as Controls } from './components/Controls/index.jsx';
 export { default as Background } from './components/Background/index.jsx';
 export { default as Panel } from './components/Panel/index.jsx';
+
+// Node/Edge building blocks (for custom nodeTypes/edgeTypes)
+export { default as Handle } from './components/Handle/index.jsx';
+export { default as NodeResizer } from './components/NodeResizer/index.jsx';
+export { default as NodeToolbar } from './components/NodeToolbar/index.jsx';
+export { default as EdgeToolbar } from './components/EdgeToolbar/index.jsx';
+export { default as EdgeLabelRenderer } from './components/EdgeLabelRenderer/index.jsx';
+export { default as ViewportPortal } from './components/ViewportPortal/index.jsx';
+export { default as ConnectionLine } from './components/ConnectionLine/index.jsx';
+export { default as SelectionBox } from './components/SelectionBox/index.jsx';
+
+// ─── Built-in Edge Components ───────────────────────────────────
+export { BaseEdge } from './components/Edges/BaseEdge.jsx';
+export { EdgeText } from './components/Edges/EdgeText.jsx';
+export { BezierEdge } from './components/Edges/BezierEdge.jsx';
+export { StraightEdge } from './components/Edges/StraightEdge.jsx';
+export { SmoothStepEdge } from './components/Edges/SmoothStepEdge.jsx';
+export { StepEdge } from './components/Edges/StepEdge.jsx';
+export { SimpleBezierEdge } from './components/Edges/SimpleBezierEdge.jsx';
+
+// ─── Built-in Node Components ───────────────────────────────────
+export { DefaultNode } from './components/Nodes/DefaultNode.jsx';
+export { InputNode } from './components/Nodes/InputNode.jsx';
+export { OutputNode } from './components/Nodes/OutputNode.jsx';
+export { GroupNode } from './components/Nodes/GroupNode.jsx';

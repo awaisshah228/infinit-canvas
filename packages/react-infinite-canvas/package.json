@@ -41,5 +41,6 @@
   "scripts": {
     "build": "vite build && cp src/styles.css dist/styles.css",
     "dev": "vite build --watch"
-  }
+  },
+  "dependencies": {}
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { InfiniteCanvas, useNodesState, useEdgesState, addEdge } from 'react-infinite-canvas';
 import 'react-infinite-canvas/styles.css';
 
@@ -47,7 +47,9 @@ function generateNodesAndEdges(nodeCount) {
 
 export default function StressTestFlow() {
   const [count, setCount] = useState(500);
+  const [loading, setLoading] = useState(false);
   const [hud, setHud] = useState({ wx: 0, wy: 0, zoom: '1.00', renderMs: '0', fps: 0 });
+  const pendingCountRef = useRef(null);
 
   const generated = useMemo(() => generateNodesAndEdges(count), [count]);
   const [nodes, setNodes, onNodesChange] = useNodesState(generated.nodes);
@@ -65,62 +67,91 @@ export default function StressTestFlow() {
   );
 
   const addMore = useCallback((n) => {
-    setNodes((prev) => {
-      const startIdx = prev.length;
-      const newNodes = [];
-      const newEdges = [];
-      for (let i = 0; i < n; i++) {
-        const idx = startIdx + i;
-        const col = idx % COLS;
-        const row = Math.floor(idx / COLS);
-        newNodes.push({
-          id: `n${idx}`,
-          position: {
-            x: col * (NODE_W + GAP_X),
-            y: row * (NODE_H + GAP_Y),
-          },
-          data: { label: `Node ${idx + 1}` },
-        });
-        if (col < COLS - 1 && idx + 1 <= startIdx + n - 1) {
-          newEdges.push({
-            id: `e${idx}-${idx + 1}`,
-            source: `n${idx}`,
-            target: `n${idx + 1}`,
+    setLoading(true);
+    // Defer heavy work so the loader paints first
+    setTimeout(() => {
+      setNodes((prev) => {
+        const startIdx = prev.length;
+        const newNodes = [];
+        const newEdges = [];
+        for (let i = 0; i < n; i++) {
+          const idx = startIdx + i;
+          const col = idx % COLS;
+          const row = Math.floor(idx / COLS);
+          newNodes.push({
+            id: `n${idx}`,
+            position: {
+              x: col * (NODE_W + GAP_X),
+              y: row * (NODE_H + GAP_Y),
+            },
+            data: { label: `Node ${idx + 1}` },
           });
+          if (col < COLS - 1 && idx + 1 <= startIdx + n - 1) {
+            newEdges.push({
+              id: `e${idx}-${idx + 1}`,
+              source: `n${idx}`,
+              target: `n${idx + 1}`,
+            });
+          }
         }
-      }
-      setEdges((prevEdges) => [...prevEdges, ...newEdges]);
-      return [...prev, ...newNodes];
-    });
-  }, [setEdges]);
+        setEdges((prevEdges) => [...prevEdges, ...newEdges]);
+        return [...prev, ...newNodes];
+      });
+    }, 0);
+  }, [setNodes, setEdges]);
+
+  const handleSetCount = useCallback((newCount) => {
+    setLoading(true);
+    pendingCountRef.current = newCount;
+    // Defer so loader renders before heavy generation
+    setTimeout(() => {
+      setCount(newCount);
+    }, 0);
+  }, []);
+
+  const onNodesProcessed = useCallback(() => {
+    setLoading(false);
+    pendingCountRef.current = null;
+  }, []);
 
   const onHudUpdate = useCallback((data) => setHud(data), []);
 
   return (
     <div style={{ padding: 20 }}>
-      <InfiniteCanvas
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        height="calc(100vh - 100px)"
-        zoomMin={0.02}
-        onHudUpdate={onHudUpdate}
-      />
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-        <button onClick={() => addMore(100)} style={btnStyle}>+ Add 100</button>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => addMore(100)} style={btnStyle} disabled={loading}>+ Add 100</button>
         <span style={{ color: '#ccc' }}>|</span>
-        <button onClick={() => setCount(200)} style={btnStyle}>200</button>
-        <button onClick={() => setCount(500)} style={btnStyle}>500</button>
-        <button onClick={() => setCount(1000)} style={btnStyle}>1000</button>
-        <button onClick={() => setCount(2000)} style={btnStyle}>2000</button>
-        <button onClick={() => setCount(5000)} style={btnStyle}>5000</button>
+        <button onClick={() => handleSetCount(200)} style={btnStyle} disabled={loading}>200</button>
+        <button onClick={() => handleSetCount(500)} style={btnStyle} disabled={loading}>500</button>
+        <button onClick={() => handleSetCount(1000)} style={btnStyle} disabled={loading}>1000</button>
+        <button onClick={() => handleSetCount(2000)} style={btnStyle} disabled={loading}>2000</button>
+        <button onClick={() => handleSetCount(5000)} style={btnStyle} disabled={loading}>5000</button>
         <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#888', marginLeft: 8 }}>
           {nodes.length} nodes ({hud.visibleNodes || '?'} visible) | {edges.length} edges | zoom: {hud.zoom}x
           {hud.renderMs ? ' | render: ' + hud.renderMs + 'ms' : ''}
           {hud.fps ? ' | fps: ' + hud.fps : ''}
         </span>
+      </div>
+      <div style={{ position: 'relative' }}>
+        <InfiniteCanvas
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          height="calc(100vh - 100px)"
+          zoomMin={0.02}
+          onHudUpdate={onHudUpdate}
+          onNodesProcessed={onNodesProcessed}
+        />
+        {loading && (
+          <div style={overlayStyle}>
+            <div style={spinnerStyle} />
+            <div style={{ color: '#555', fontSize: 14, marginTop: 12 }}>
+              Loading {pendingCountRef.current || ''} nodes…
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -134,4 +165,25 @@ const btnStyle = {
   background: '#fff',
   cursor: 'pointer',
   color: '#333',
+};
+
+const overlayStyle = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'rgba(255, 255, 255, 0.85)',
+  zIndex: 100,
+  borderRadius: 8,
+};
+
+const spinnerStyle = {
+  width: 36,
+  height: 36,
+  border: '3px solid #e5e7eb',
+  borderTopColor: '#3b82f6',
+  borderRadius: '50%',
+  animation: 'ric-spin 0.8s linear infinite',
 };

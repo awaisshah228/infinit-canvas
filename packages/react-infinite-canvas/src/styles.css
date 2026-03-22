@@ -62,3 +62,34 @@
     color: #666;
   }
 }
+
+/* Loading overlay */
+.ric-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: inherit;
+  z-index: 50;
+}
+
+.ric-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: ric-spin 0.7s linear infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ric-spinner {
+    border-color: rgba(255, 255, 255, 0.1);
+    border-top-color: #666;
+  }
+}
+
+@keyframes ric-spin {
+  to { transform: rotate(360deg); }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "libavoid-js",
+  "version": "0.1.0",
+  "description": "TypeScript port of libavoid - Fast, Incremental, Object-avoiding Line Router",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "routing",
+    "connector",
+    "obstacle-avoidance",
+    "graph",
+    "diagram",
+    "orthogonal",
+    "polyline",
+    "visibility-graph",
+    "libavoid",
+    "typescript"
+  ],
+  "license": "LGPL-2.1",
+  "author": {
+    "name": "Michael Wybrow (original C++ library, Monash University)",
+    "url": "https://github.com/mjwybrow/adaptagrams"
+  },
+  "repository": {
+    "type": "git",
+    "directory": "packages/libavoid-js"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

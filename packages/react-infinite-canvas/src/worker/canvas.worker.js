@@ -235,6 +235,7 @@ self.onmessage = function(e) {
         hasAnimatedEdges = edges.some(function(edge) { return edge.animated; });
         console.log('[worker] init done — canvas:', W, 'x', H, '| cards:', cards.length, '| nodes:', nodes.length, '| edges:', edges.length);
         render();
+        self.postMessage({ type: 'ready' });
         if (hasAnimatedEdges) startAnimationLoop();
         break;
 
@@ -261,6 +262,7 @@ self.onmessage = function(e) {
         nodes = data.nodes;
         nodeLookupDirty = true;
         scheduleRender();
+        self.postMessage({ type: 'nodesProcessed', data: { nodeCount: nodes.length } });
         break;
 
       case 'edges':
@@ -322,6 +324,79 @@ function startAnimationLoop() {
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
+}
+
+// ── Routed path helpers ──────────────────────────────────────
+function drawRoutedPath(path, points) {
+  var br = 6;
+  path.moveTo(points[0].x, points[0].y);
+  for (var i = 1; i < points.length - 1; i++) {
+    var prev = points[i - 1], curr = points[i], next = points[i + 1];
+    var dPrev = Math.abs(curr.x - prev.x) + Math.abs(curr.y - prev.y);
+    var dNext = Math.abs(next.x - curr.x) + Math.abs(next.y - curr.y);
+    var r = Math.min(br, dPrev / 2, dNext / 2);
+    if (r > 0.5) {
+      var ax = curr.x - prev.x, ay = curr.y - prev.y;
+      var bx = next.x - curr.x, by = next.y - curr.y;
+      var aLen = Math.sqrt(ax * ax + ay * ay) || 1;
+      var bLen = Math.sqrt(bx * bx + by * by) || 1;
+      path.lineTo(curr.x - (ax / aLen) * r, curr.y - (ay / aLen) * r);
+      path.quadraticCurveTo(curr.x, curr.y, curr.x + (bx / bLen) * r, curr.y + (by / bLen) * r);
+    } else {
+      path.lineTo(curr.x, curr.y);
+    }
+  }
+  path.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+}
+
+// Draw a smooth cubic spline through routed waypoints (for bezier-type edges).
+// Uses Catmull-Rom → cubic Bezier conversion so the curve passes through
+// every waypoint while staying smooth.
+function drawRoutedCurve(path, points) {
+  if (points.length < 2) return;
+  path.moveTo(points[0].x, points[0].y);
+  if (points.length === 2) {
+    path.lineTo(points[1].x, points[1].y);
+    return;
+  }
+  if (points.length === 3) {
+    // Single quadratic through the middle point
+    path.quadraticCurveTo(points[1].x, points[1].y, points[2].x, points[2].y);
+    return;
+  }
+  // Catmull-Rom with tension 0 → cubic Bezier, passing through all points
+  var tension = 0.3;
+  for (var i = 0; i < points.length - 1; i++) {
+    var p0 = points[i === 0 ? 0 : i - 1];
+    var p1 = points[i];
+    var p2 = points[i + 1];
+    var p3 = points[i + 2 < points.length ? i + 2 : points.length - 1];
+    var cp1x = p1.x + (p2.x - p0.x) * tension;
+    var cp1y = p1.y + (p2.y - p0.y) * tension;
+    var cp2x = p2.x - (p3.x - p1.x) * tension;
+    var cp2y = p2.y - (p3.y - p1.y) * tension;
+    path.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+
+function getRoutedMidpoint(points) {
+  var totalLen = 0;
+  for (var i = 1; i < points.length; i++) {
+    totalLen += Math.abs(points[i].x - points[i - 1].x) + Math.abs(points[i].y - points[i - 1].y);
+  }
+  var halfLen = totalLen / 2;
+  for (var j = 1; j < points.length; j++) {
+    var segLen = Math.abs(points[j].x - points[j - 1].x) + Math.abs(points[j].y - points[j - 1].y);
+    if (halfLen <= segLen) {
+      var t = segLen > 0 ? halfLen / segLen : 0;
+      return {
+        x: points[j - 1].x + (points[j].x - points[j - 1].x) * t,
+        y: points[j - 1].y + (points[j].y - points[j - 1].y) * t,
+      };
+    }
+    halfLen -= segLen;
+  }
+  return { x: points[0].x, y: points[0].y };
 }
 
 // ── Bezier curve helpers ──────────────────────────────────────
@@ -518,8 +593,11 @@ function render() {
       var vnh = vn.height || DEFAULT_NODE_HEIGHT;
       if (getNodePos(vn).x + vnw < worldLeft || getNodePos(vn).x > worldRight ||
           getNodePos(vn).y + vnh < worldTop || getNodePos(vn).y > worldBottom) continue;
-      visibleNodes.push(vn);
+      // Custom-rendered nodes are visible (for edge culling) but not canvas-drawn
       visibleNodeSet[vn.id] = true;
+      if (!vn._customRendered) {
+        visibleNodes.push(vn);
+      }
     }
   }
   var visNodeCount = visibleNodes.length;
@@ -541,6 +619,8 @@ function render() {
       var tgtNode = getNodeById(edge.target);
       if (!srcNode || !tgtNode) continue;
       if (srcNode.hidden || tgtNode.hidden) continue;
+      // Skip edges rendered by custom React components
+      if (edge._customRendered) continue;
 
       // Frustum cull: skip edges where BOTH nodes are off-screen
       if (visibleNodeSet && !visibleNodeSet[edge.source] && !visibleNodeSet[edge.target]) continue;
@@ -567,8 +647,15 @@ function render() {
         path = normalPath;
       }
 
-      // Add edge shape to path
-      if (edgeType === 'straight') {
+      // Add edge shape to path — use routed points if available
+      var rp = edge._routedPoints;
+      if (rp && rp.length >= 2) {
+        if (edgeType === 'step' || edgeType === 'smoothstep' || edgeType === 'straight') {
+          drawRoutedPath(path, rp);
+        } else {
+          drawRoutedCurve(path, rp);
+        }
+      } else if (edgeType === 'straight') {
         path.moveTo(ex1, ey1);
         path.lineTo(ex2, ey2);
       } else if (edgeType === 'step' || edgeType === 'smoothstep') {
@@ -595,7 +682,10 @@ function render() {
       // Collect arrow data
       var arrowSize = 8;
       var angle;
-      if (edgeType === 'straight') {
+      if (rp && rp.length >= 2) {
+        var last = rp[rp.length - 1], prev = rp[rp.length - 2];
+        angle = Math.atan2(last.y - prev.y, last.x - prev.x);
+      } else if (edgeType === 'straight') {
         angle = Math.atan2(ey2 - ey1, ex2 - ex1);
       } else if (edgeType === 'step' || edgeType === 'smoothstep') {
         angle = 0;
@@ -603,7 +693,8 @@ function render() {
         var bpa = getBezierPath(ex1, ey1, ex2, ey2);
         angle = Math.atan2(ey2 - bpa.cp2y, ex2 - bpa.cp2x);
       }
-      var arrowData = { x: ex2, y: ey2, angle: angle, size: arrowSize };
+      var arrowTip = (rp && rp.length >= 2) ? rp[rp.length - 1] : { x: ex2, y: ey2 };
+      var arrowData = { x: arrowTip.x, y: arrowTip.y, angle: angle, size: arrowSize };
       if (isSelected) selectedArrows.push(arrowData);
       else if (isAnimated) animatedArrows.push(arrowData);
       else normalArrows.push(arrowData);
@@ -611,7 +702,9 @@ function render() {
       // Collect labels
       if (edge.label && camera.zoom > 0.3) {
         var labelPos;
-        if (edgeType === 'straight' || edgeType === 'step' || edgeType === 'smoothstep') {
+        if (rp && rp.length >= 2) {
+          labelPos = getRoutedMidpoint(rp);
+        } else if (edgeType === 'straight' || edgeType === 'step' || edgeType === 'smoothstep') {
           labelPos = { x: (ex1 + ex2) / 2, y: (ey1 + ey2) / 2 };
         } else {
           labelPos = getBezierMidpoint(ex1, ey1, ex2, ey2);
@@ -689,12 +782,19 @@ function render() {
     ctx.strokeStyle = COLORS.connectionLine;
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
-    var cfrom = connectingLine.from;
-    var cto = connectingLine.to;
-    var cbp = getBezierPath(cfrom.x, cfrom.y, cto.x, cto.y);
-    ctx.moveTo(cfrom.x, cfrom.y);
-    ctx.bezierCurveTo(cbp.cp1x, cbp.cp1y, cbp.cp2x, cbp.cp2y, cto.x, cto.y);
-    ctx.stroke();
+    var crp = connectingLine._routedPoints;
+    if (crp && crp.length >= 2) {
+      var connPath = new Path2D();
+      drawRoutedPath(connPath, crp);
+      ctx.stroke(connPath);
+    } else {
+      var cfrom = connectingLine.from;
+      var cto = connectingLine.to;
+      var cbp = getBezierPath(cfrom.x, cfrom.y, cto.x, cto.y);
+      ctx.moveTo(cfrom.x, cfrom.y);
+      ctx.bezierCurveTo(cbp.cp1x, cbp.cp1y, cbp.cp2x, cbp.cp2y, cto.x, cto.y);
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
   }
 

@@ -1,6 +1,10 @@
 import { useCallback } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
-import { InfiniteCanvas, useNodesState, useEdgesState, addEdge, Controls, MiniMap, Background } from 'react-infinite-canvas';
+import {
+  InfiniteCanvas, useNodesState, useEdgesState, addEdge,
+  Controls, MiniMap, Background,
+  Handle, NodeToolbar, NodeResizer, getBezierPath,
+} from 'react-infinite-canvas';
 import 'react-infinite-canvas/styles.css';
 import CodeTabs from './components/CodeTabs';
 import StressTest from './StressTest';
@@ -35,9 +39,87 @@ const INITIAL_EDGES = [
   { id: 'e3-4', source: '3', target: '4', animated: true },
 ];
 
+// ─── Custom Node Components ──────────────────────────────────────
+
+function ColorNode({ data, selected }) {
+  return (
+    <div style={{
+      background: data.color || '#f0f9ff',
+      border: selected ? '2px solid #3b82f6' : '1px solid #ddd',
+      borderRadius: 8,
+      padding: '10px 16px',
+      minWidth: 140,
+      position: 'relative',
+    }}>
+      <Handle type="target" position="left" />
+      <div style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</div>
+      {data.description && <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>{data.description}</div>}
+      <NodeToolbar position="top">
+        <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 4, padding: '2px 8px', fontSize: 11 }}>
+          Edit
+        </div>
+      </NodeToolbar>
+      <Handle type="source" position="right" />
+    </div>
+  );
+}
+
+function ResizableNode({ data, selected, width, height }) {
+  return (
+    <div style={{
+      background: '#fefce8',
+      border: selected ? '2px solid #eab308' : '1px solid #e5e7eb',
+      borderRadius: 8,
+      padding: 12,
+      width: width || 180,
+      height: height || 80,
+      position: 'relative',
+      overflow: 'visible',
+    }}>
+      <Handle type="target" position="top" />
+      <div style={{ fontWeight: 600, fontSize: 13 }}>{data.label}</div>
+      <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Drag corners to resize</div>
+      {selected && <NodeResizer color="#eab308" minWidth={100} minHeight={50} />}
+      <Handle type="source" position="bottom" />
+    </div>
+  );
+}
+
+// ─── Custom Edge Component ───────────────────────────────────────
+
+function DashedEdge({ sourceX, sourceY, targetX, targetY, data, selected }) {
+  const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY });
+  return (
+    <path
+      d={path}
+      fill="none"
+      stroke={selected ? '#3b82f6' : (data?.color || '#f97316')}
+      strokeWidth={selected ? 3 : 2}
+      strokeDasharray="8,4"
+    />
+  );
+}
+
+const CUSTOM_NODE_TYPES = { color: ColorNode, resizable: ResizableNode };
+const CUSTOM_EDGE_TYPES = { dashed: DashedEdge };
+
+const CUSTOM_NODES = [
+  { id: 'c1', type: 'color', position: { x: 50, y: 50 }, data: { label: 'Input', color: '#dbeafe', description: 'Custom React node' } },
+  { id: 'c2', type: 'color', position: { x: 350, y: 30 }, data: { label: 'Process', color: '#dcfce7' } },
+  { id: 'c3', type: 'resizable', position: { x: 350, y: 180 }, data: { label: 'Resizable' }, width: 180, height: 80 },
+  { id: 'c4', position: { x: 600, y: 80 }, data: { label: 'Default Node' } }, // canvas-rendered (no type match)
+];
+
+const CUSTOM_EDGES = [
+  { id: 'ce1', source: 'c1', target: 'c2', type: 'dashed', data: { color: '#f97316' } },
+  { id: 'ce2', source: 'c2', target: 'c3' }, // default canvas edge
+  { id: 'ce3', source: 'c2', target: 'c4', label: 'default' },
+];
+
 function Nav({ current }) {
   const links = [
     { to: '/', label: 'Nodes & Edges', key: 'flow' },
+    { to: '/custom', label: 'Custom Nodes', key: 'custom' },
     { to: '/cards', label: 'Cards', key: 'cards' },
     { to: '/stress', label: 'Stress (Cards)', key: 'stress' },
     { to: '/stress-flow', label: 'Stress (Nodes)', key: 'stress-flow' },
@@ -128,6 +210,42 @@ function CardsPage() {
   );
 }
 
+function CustomNodesDemo() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(CUSTOM_NODES);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(CUSTOM_EDGES);
+
+  const onConnect = useCallback(
+    (connection) => setEdges((eds) => addEdge(connection, eds)),
+    [setEdges]
+  );
+
+  return (
+    <div className="app">
+      <Nav current="custom" />
+      <p style={{ padding: '0 20px', margin: '0 0 12px', fontSize: 13, color: '#888' }}>
+        Custom React nodes (DOM) + custom SVG edges + canvas default nodes — all in one canvas.
+        The blue &amp; green nodes are React components. The orange dashed edge is a custom SVG edge.
+        The &quot;Default Node&quot; and solid edges render on canvas.
+      </p>
+      <InfiniteCanvas
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={CUSTOM_NODE_TYPES}
+        edgeTypes={CUSTOM_EDGE_TYPES}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        height="500px"
+        initialCamera={{ x: 80, y: 60, zoom: 1 }}
+      >
+        <Controls />
+        <MiniMap />
+        <Background variant="dots" />
+      </InfiniteCanvas>
+    </div>
+  );
+}
+
 function StressPage() {
   return (
     <div>
@@ -150,6 +268,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<FlowDemo />} />
+      <Route path="/custom" element={<CustomNodesDemo />} />
       <Route path="/cards" element={<CardsPage />} />
       <Route path="/stress" element={<StressPage />} />
       <Route path="/stress-flow" element={<StressFlowPage />} />
