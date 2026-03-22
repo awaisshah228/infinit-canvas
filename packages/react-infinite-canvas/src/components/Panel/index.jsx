@@ -23,6 +23,7 @@ export default function Panel({
         ...posStyle,
         ...style,
       }}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       {children}
     </div>

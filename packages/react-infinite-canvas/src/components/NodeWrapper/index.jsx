@@ -85,8 +85,10 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     }
     store.onNodesChangeRef.current?.(dragChanges);
 
-    // Capture pointer on the wrapper so moves work everywhere
-    wrap.setPointerCapture(e.pointerId);
+    // Capture pointer on the node wrapper element (not the canvas wrap)
+    // so pointer events don't trigger canvas pan/zoom handlers
+    const el = wrapperRef.current;
+    if (el) el.setPointerCapture(e.pointerId);
 
     const onMove = (ev) => {
       if (!dragRef.current) return;
@@ -142,12 +144,13 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
       }
       store.onNodesChangeRef.current?.(changes);
       dragRef.current = null;
-      wrap.removeEventListener('pointermove', onMove);
-      wrap.removeEventListener('pointerup', onUp);
+      if (el) el.releasePointerCapture(ev.pointerId);
+      el?.removeEventListener('pointermove', onMove);
+      el?.removeEventListener('pointerup', onUp);
     };
 
-    wrap.addEventListener('pointermove', onMove);
-    wrap.addEventListener('pointerup', onUp);
+    el?.addEventListener('pointermove', onMove);
+    el?.addEventListener('pointerup', onUp);
   }, [node, store]);
 
   // Keyboard navigation — arrow keys move selected nodes
