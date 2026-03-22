@@ -19,6 +19,7 @@ export default defineConfig({
       },
     },
   ],
+  appType: 'spa',
   server: {
     fs: {
       allow: [
