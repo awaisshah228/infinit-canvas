@@ -343,7 +343,7 @@ var lastHudTime = 0;
 var animOffset = 0;
 var hasAnimatedEdges = false;
 
-console.log('[worker] script loaded');
+console.log('[worker] script loaded v2 - FRESH');
 self.postMessage({ type: 'ping', data: { status: 'alive' } });
 
 self.onmessage = function(e) {
@@ -801,6 +801,7 @@ function render() {
   var visNodeCount = visibleNodes.length;
 
   // ── Render edges (batched, with frustum culling via adjacency) ──
+  console.log('[RENDER] edges:', edges.length, 'nodes:', nodes.length, 'visNodes:', visNodeCount);
   if (edges.length > 0 && nodes.length > 0) {
     if (edgeAdjacencyDirty) rebuildEdgeAdjacency();
     var normalPath = null;
@@ -867,7 +868,7 @@ function render() {
       }
 
       var rp = edge._routedPoints;
-      if (rp && rp.length >= 2) {
+      if (false && rp && rp.length >= 2) { // DISABLED: always use built-in path rendering
         if (edgeType === 'step' || edgeType === 'smoothstep' || edgeType === 'straight') {
           drawRoutedPath(path, rp);
         } else {
@@ -877,20 +878,115 @@ function render() {
         path.moveTo(ex1, ey1);
         path.lineTo(ex2, ey2);
       } else if (edgeType === 'step' || edgeType === 'smoothstep') {
-        var midX = (ex1 + ex2) / 2;
-        path.moveTo(ex1, ey1);
-        if (edgeType === 'smoothstep') {
-          var br = 8;
-          path.lineTo(midX - br, ey1);
-          path.quadraticCurveTo(midX, ey1, midX, ey1 + (ey2 > ey1 ? br : -br));
-          path.lineTo(midX, ey2 - (ey2 > ey1 ? br : -br));
-          path.quadraticCurveTo(midX, ey2, midX + br, ey2);
-          path.lineTo(ex2, ey2);
+        try {
+        console.log('[SMOOTH]', edge.id, 'srcHandle:', JSON.stringify(srcHandle), 'tgtHandle:', JSON.stringify(tgtHandle));
+        // Handle directions
+        var srcHDir = srcHandle.position || 'right';
+        var tgtHDir = tgtHandle.position || 'left';
+        console.log('[SMOOTH]', edge.id, 'srcHDir:', srcHDir, 'tgtHDir:', tgtHDir, 'ex1:', ex1, 'ey1:', ey1, 'ex2:', ex2, 'ey2:', ey2);
+        var OFS = 20;
+        // Gapped points: always go OFS px away from handle first
+        var gx1 = ex1, gy1 = ey1, gx2 = ex2, gy2 = ey2;
+        if (srcHDir === 'right') gx1 += OFS;
+        else if (srcHDir === 'left') gx1 -= OFS;
+        else if (srcHDir === 'bottom') gy1 += OFS;
+        else if (srcHDir === 'top') gy1 -= OFS;
+        if (tgtHDir === 'right') gx2 += OFS;
+        else if (tgtHDir === 'left') gx2 -= OFS;
+        else if (tgtHDir === 'bottom') gy2 += OFS;
+        else if (tgtHDir === 'top') gy2 -= OFS;
+        // Node boundaries
+        var sp = getNodePos(srcNode), tp = getNodePos(tgtNode);
+        var sw = srcNode.width || DEFAULT_NODE_WIDTH, sh = srcNode.height || DEFAULT_NODE_HEIGHT;
+        var tw = tgtNode.width || DEFAULT_NODE_WIDTH, th = tgtNode.height || DEFAULT_NODE_HEIGHT;
+        var isHSrc = (srcHDir === 'left' || srcHDir === 'right');
+        var isHTgt = (tgtHDir === 'left' || tgtHDir === 'right');
+        // Compute path points
+        var waypoints = [];
+        if (isHSrc && isHTgt) {
+          var midX;
+          var goesRight = (srcHDir === 'right' && gx1 < gx2);
+          var goesLeft = (srcHDir === 'left' && gx1 > gx2);
+          if (goesRight || goesLeft) {
+            midX = (gx1 + gx2) / 2;
+          } else {
+            // Route around: go past the rightmost or leftmost node edge
+            if (srcHDir === 'right') midX = Math.max(sp.x + sw, tp.x + tw) + OFS;
+            else midX = Math.min(sp.x, tp.x) - OFS;
+          }
+          // Check if horizontal segment from midX to gx2 would cross through target node
+          var tgtCrossH = (midX > tp.x && gx2 < tp.x + tw) || (midX < tp.x + tw && gx2 > tp.x);
+          if (tgtCrossH && !goesRight && !goesLeft) {
+            // Route around target: go past target bottom/top, then approach from handle direction
+            // Pick shorter route: over or under target node
+            var overY = tp.y - OFS;
+            var underY = tp.y + th + OFS;
+            // Use the side closer to where the vertical midline already is (ey1)
+            var tgtOutY = Math.abs(ey1 - overY) <= Math.abs(ey1 - underY) ? overY : underY;
+            waypoints = [
+              { x: gx1, y: ey1 }, { x: midX, y: ey1 },
+              { x: midX, y: tgtOutY }, { x: gx2, y: tgtOutY },
+              { x: gx2, y: ey2 }
+            ];
+          } else {
+            waypoints = [{ x: gx1, y: ey1 }, { x: midX, y: ey1 }, { x: midX, y: ey2 }, { x: gx2, y: ey2 }];
+          }
+        } else if (!isHSrc && !isHTgt) {
+          var midY;
+          var goesDown = (srcHDir === 'bottom' && gy1 < gy2);
+          var goesUp = (srcHDir === 'top' && gy1 > gy2);
+          if (goesDown || goesUp) {
+            midY = (gy1 + gy2) / 2;
+          } else {
+            if (srcHDir === 'bottom') midY = Math.max(sp.y + sh, tp.y + th) + OFS;
+            else midY = Math.min(sp.y, tp.y) - OFS;
+          }
+          waypoints = [{ x: ex1, y: gy1 }, { x: ex1, y: midY }, { x: ex2, y: midY }, { x: gx2, y: gy2 }];
         } else {
-          path.lineTo(midX, ey1);
-          path.lineTo(midX, ey2);
-          path.lineTo(ex2, ey2);
+          // Mixed: horizontal src + vertical tgt or vice versa → L-shape
+          if (isHSrc) {
+            waypoints = [{ x: gx1, y: ey1 }, { x: ex2, y: ey1 }, { x: ex2, y: gy2 }];
+          } else {
+            waypoints = [{ x: ex1, y: gy1 }, { x: ex1, y: ey2 }, { x: gx2, y: ey2 }];
+          }
         }
+        // Build full path: handle → gap → waypoints → gap → handle
+        var allPts = [{ x: ex1, y: ey1 }];
+        for (var wi = 0; wi < waypoints.length; wi++) allPts.push(waypoints[wi]);
+        allPts.push({ x: ex2, y: ey2 });
+        // Remove collinear duplicates
+        var cleanPts = [allPts[0]];
+        for (var ci = 1; ci < allPts.length; ci++) {
+          var last = cleanPts[cleanPts.length - 1];
+          if (Math.abs(allPts[ci].x - last.x) > 0.1 || Math.abs(allPts[ci].y - last.y) > 0.1) {
+            cleanPts.push(allPts[ci]);
+          }
+        }
+        // Draw
+        console.log('[edge]', edge.id, 'cleanPts:', JSON.stringify(cleanPts));
+        var br = edgeType === 'smoothstep' ? 8 : 0;
+        path.moveTo(cleanPts[0].x, cleanPts[0].y);
+        for (var di = 1; di < cleanPts.length; di++) {
+          if (br > 0 && di > 0 && di < cleanPts.length - 1) {
+            var pa = cleanPts[di - 1], pb = cleanPts[di], pc = cleanPts[di + 1];
+            if ((Math.abs(pa.x - pb.x) < 0.5 && Math.abs(pb.x - pc.x) < 0.5) ||
+                (Math.abs(pa.y - pb.y) < 0.5 && Math.abs(pb.y - pc.y) < 0.5)) {
+              path.lineTo(pb.x, pb.y);
+            } else {
+              var bsz = Math.min(Math.hypot(pa.x-pb.x, pa.y-pb.y)/2, Math.hypot(pb.x-pc.x, pb.y-pc.y)/2, br);
+              if (Math.abs(pa.y - pb.y) < 0.5) {
+                path.lineTo(pb.x + (pa.x < pc.x ? -1 : 1) * bsz, pb.y);
+                path.quadraticCurveTo(pb.x, pb.y, pb.x, pb.y + (pa.y < pc.y ? 1 : -1) * bsz);
+              } else {
+                path.lineTo(pb.x, pb.y + (pa.y < pc.y ? -1 : 1) * bsz);
+                path.quadraticCurveTo(pb.x, pb.y, pb.x + (pa.x < pc.x ? 1 : -1) * bsz, pb.y);
+              }
+            }
+          } else {
+            path.lineTo(cleanPts[di].x, cleanPts[di].y);
+          }
+        }
+        } catch(smoothErr) { console.error('[worker] smoothstep error:', smoothErr, 'edge:', edge.id); }
       } else {
         var bp = getBezierPath(ex1, ey1, ex2, ey2);
         path.moveTo(ex1, ey1);

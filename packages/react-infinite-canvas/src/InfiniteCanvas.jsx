@@ -23,10 +23,9 @@ const builtInNodeTypes = {
 };
 
 const builtInEdgeTypes = {
+  // smoothstep/step are handled by the canvas worker directly (not React SVG)
   bezier: BezierEdge,
   straight: StraightEdge,
-  smoothstep: SmoothStepEdge,
-  step: StepEdge,
   simplebezier: SimpleBezierEdge,
 };
 
