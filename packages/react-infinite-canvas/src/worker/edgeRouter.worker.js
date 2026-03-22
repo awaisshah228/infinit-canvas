@@ -337,6 +337,10 @@ function computeRoutedEdges(nodes, edges) {
   var SRC_TGT_PAD = 5;
 
   var routed = edges.map(function(edge) {
+    // Skip bezier edges — they use stubs, not orthogonal routing
+    var et = edge.type || 'default';
+    if (et === 'bezier' || et === 'simplebezier' || et === 'default') return edge;
+
     var srcNode = nodeLookup[edge.source];
     var tgtNode = nodeLookup[edge.target];
     if (!srcNode || !tgtNode) return edge;

@@ -66,6 +66,9 @@ function applySingleChange(change, element) {
           element.height = change.dimensions.height;
         }
       }
+      if (change.handleBounds !== undefined) {
+        element.handleBounds = change.handleBounds;
+      }
       break;
   }
 }

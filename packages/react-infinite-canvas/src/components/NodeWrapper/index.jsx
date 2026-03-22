@@ -186,6 +186,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
 
   const nw = node.width || node.measured?.width;
   const nh = node.height || node.measured?.height;
+  const hasDimensions = !!(nw && nh);
 
   return (
     <NodeIdContext.Provider value={node.id}>
@@ -199,6 +200,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           zIndex: node.type === 'group' ? 0 : (node.zIndex || 1),
           pointerEvents: node.type === 'group' ? 'none' : 'all',
           cursor: node.dragging ? 'grabbing' : 'grab',
+          visibility: hasDimensions ? 'visible' : 'hidden',
           userSelect: 'none',
           outline: 'none',
         }}

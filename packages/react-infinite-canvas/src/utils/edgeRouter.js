@@ -447,6 +447,10 @@ export function computeRoutedEdges(nodes, edges) {
   const allObstacles = buildObstacles(nodes, null);
 
   const routed = edges.map(edge => {
+    // Skip bezier edges — they use stubs, not orthogonal routing
+    const et = edge.type || 'default';
+    if (et === 'bezier' || et === 'simplebezier' || et === 'default') return edge;
+
     const srcNode = nodeLookup[edge.source];
     const tgtNode = nodeLookup[edge.target];
     if (!srcNode || !tgtNode) return edge;

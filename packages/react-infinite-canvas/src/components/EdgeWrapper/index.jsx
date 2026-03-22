@@ -5,11 +5,21 @@ const DEFAULT_NODE_WIDTH = 160;
 const DEFAULT_NODE_HEIGHT = 60;
 
 function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
-  const nw = node.width || DEFAULT_NODE_WIDTH;
-  const nh = node.height || DEFAULT_NODE_HEIGHT;
+  const nw = node.width || node.measured?.width || DEFAULT_NODE_WIDTH;
+  const nh = node.height || node.measured?.height || DEFAULT_NODE_HEIGHT;
   const pos = node._absolutePosition || node.position;
 
-  // Check handle registry first (measured DOM positions from <Handle> components)
+  // 1. Check node.handleBounds first (populated by Handle component, triggers re-render)
+  if (node.handleBounds) {
+    const bounds = node.handleBounds[handleType] || [];
+    const handle = handleId ? bounds.find((h) => h.id === handleId) : bounds[0];
+    if (handle && handle.x !== undefined && handle.y !== undefined) {
+      const p = handle.position || (handleType === 'source' ? 'right' : 'left');
+      return { x: pos.x + handle.x, y: pos.y + handle.y, position: p };
+    }
+  }
+
+  // 2. Fallback to handle registry (mutable Map, may be stale but fast)
   if (handleRegistry) {
     const key = `${node.id}__${handleId || handleType}`;
     const registered = handleRegistry.get(key);
@@ -18,6 +28,7 @@ function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
     }
   }
 
+  // 3. Fallback to node.handles array (static definitions for position-based fallback)
   if (node.handles && node.handles.length) {
     for (const h of node.handles) {
       if (h.type === handleType && (!handleId || h.id === handleId)) {
@@ -35,6 +46,7 @@ function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
     }
   }
 
+  // 4. Final fallback
   if (handleType === 'source') return { x: pos.x + nw, y: pos.y + nh / 2, position: 'right' };
   return { x: pos.x, y: pos.y + nh / 2, position: 'left' };
 }
@@ -70,22 +82,8 @@ function EdgeAnchor({ x, y, position, type, onPointerDown }) {
 function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
   const store = useCanvasStore();
   const [hovering, setHovering] = useState(null); // 'source' | 'target' | null
-  const srcNode = nodes.find((n) => n.id === edge.source);
-  const tgtNode = nodes.find((n) => n.id === edge.target);
-  if (!srcNode || !tgtNode) return null;
 
-  const handleRegistry = store.handleRegistryRef?.current;
-  const src = resolveHandlePosition(srcNode, 'source', edge.sourceHandle, handleRegistry);
-  const tgt = resolveHandlePosition(tgtNode, 'target', edge.targetHandle, handleRegistry);
-
-  // Use routed points from store if available
-  const routedEdges = store.routedEdges || store.edges;
-  const routedEdge = routedEdges?.find((e) => e.id === edge.id);
-  const routedPoints = routedEdge?._routedPoints || edge._routedPoints || null;
-
-  const isReconnectable = reconnectable !== false && edge.reconnectable !== false;
-
-  const handleReconnect = useCallback((anchorType, e) => {
+  const handleReconnect = useCallback((anchorType, e, src, tgt) => {
     e.stopPropagation();
     e.preventDefault();
 
@@ -180,7 +178,29 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
 
     wrap.addEventListener('pointermove', onMove);
     wrap.addEventListener('pointerup', onUp);
-  }, [edge, src, tgt, store]);
+  }, [edge, store]);
+
+  const srcNode = nodes.find((n) => n.id === edge.source);
+  const tgtNode = nodes.find((n) => n.id === edge.target);
+
+  // Check if nodes exist and have measured dimensions before resolving positions
+  const srcReady = srcNode && !!(srcNode.width || srcNode.measured?.width);
+  const tgtReady = tgtNode && !!(tgtNode.width || tgtNode.measured?.width);
+
+  const handleRegistry = store.handleRegistryRef?.current;
+  const src = srcReady ? resolveHandlePosition(srcNode, 'source', edge.sourceHandle, handleRegistry) : null;
+  const tgt = tgtReady ? resolveHandlePosition(tgtNode, 'target', edge.targetHandle, handleRegistry) : null;
+
+  // Use routed points from store if available (skip for bezier edges — they use stubs instead)
+  const isBezier = edge.type === 'bezier' || edge.type === 'simplebezier' || edge.type === 'default';
+  const routedEdges = store.routedEdges || store.edges;
+  const routedEdge = routedEdges?.find((e) => e.id === edge.id);
+  const routedPoints = isBezier ? null : (routedEdge?._routedPoints || edge._routedPoints || null);
+
+  const isReconnectable = reconnectable !== false && edge.reconnectable !== false;
+
+  // Don't render until both nodes are initialized with positions
+  if (!src || !tgt) return null;
 
   return (
     <g
@@ -218,14 +238,14 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
             y={src.y}
             position={src.position}
             type="source"
-            onPointerDown={(e) => handleReconnect('source', e)}
+            onPointerDown={(e) => handleReconnect('source', e, src, tgt)}
           />
           <EdgeAnchor
             x={tgt.x}
             y={tgt.y}
             position={tgt.position}
             type="target"
-            onPointerDown={(e) => handleReconnect('target', e)}
+            onPointerDown={(e) => handleReconnect('target', e, src, tgt)}
           />
         </>
       )}

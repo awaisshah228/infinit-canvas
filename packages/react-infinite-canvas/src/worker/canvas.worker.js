@@ -660,6 +660,9 @@ function routeEdgesAsync() {
   for (var ei = 0; ei < edges.length; ei++) {
     var edge = edges[ei];
     if (edge._customRendered) continue;
+    // Skip bezier edges — they use stubs, not orthogonal routing
+    var et = edge.type || 'default';
+    if (et === 'bezier' || et === 'simplebezier' || et === 'default') continue;
 
     var sn = nodeLookup[edge.source];
     var tn = nodeLookup[edge.target];

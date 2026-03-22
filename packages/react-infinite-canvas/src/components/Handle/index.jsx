@@ -2,6 +2,35 @@ import { useContext, useCallback, useRef, useEffect } from 'react';
 import { NodeIdContext } from '../../context/NodeIdContext.js';
 import { useCanvasStore } from '../../context/InfiniteCanvasContext.js';
 
+// Debounce handle bounds updates per-node — many handles mount at once
+const pendingNodeUpdates = new Map(); // nodeId → rafId
+function updateNodeHandleBounds(store, nodeId) {
+  if (pendingNodeUpdates.has(nodeId)) {
+    cancelAnimationFrame(pendingNodeUpdates.get(nodeId));
+  }
+  const rafId = requestAnimationFrame(() => {
+    pendingNodeUpdates.delete(nodeId);
+    const registry = store.handleRegistryRef?.current;
+    if (!registry) return;
+    // Collect all handles for this node from registry
+    const handleBounds = { source: [], target: [] };
+    for (const [, h] of registry) {
+      if (h.nodeId === nodeId) {
+        const entry = { id: h.id, type: h.type, position: h.position, x: h.x, y: h.y, width: 8, height: 8 };
+        if (h.type === 'source') handleBounds.source.push(entry);
+        else handleBounds.target.push(entry);
+      }
+    }
+    // Write onto node via onNodesChange so it triggers a React re-render
+    store.onNodesChangeRef.current?.([
+      { id: nodeId, type: 'dimensions', handleBounds, setAttributes: false },
+    ]);
+    // Also sync to worker
+    store.syncNodesToWorker?.();
+  });
+  pendingNodeUpdates.set(nodeId, rafId);
+}
+
 // Measure handle's offset (x, y) relative to the node wrapper element
 function measureHandleOffset(handleEl) {
   const nodeWrapper = handleEl.closest('.ric-node-wrapper');
@@ -31,7 +60,7 @@ export default function Handle({
   const store = useCanvasStore();
   const handleRef = useRef(null);
 
-  // Register this handle's measured position into the store registry
+  // Register this handle's measured position into the store registry + node handleBounds
   useEffect(() => {
     const el = handleRef.current;
     if (!el || !nodeId) return;
@@ -43,9 +72,10 @@ export default function Handle({
     const measure = () => {
       const offset = measureHandleOffset(el);
       if (offset) {
-        registry.set(key, { nodeId, id: id || null, type, position, x: offset.x, y: offset.y });
-        // Re-sync nodes to worker so it knows about the new handle positions
-        store.syncNodesToWorker?.();
+        const handleData = { nodeId, id: id || null, type, position, x: offset.x, y: offset.y };
+        registry.set(key, handleData);
+        // Write handle bounds onto the node so EdgeWrapper gets them on next render
+        updateNodeHandleBounds(store, nodeId);
       }
     };
 
@@ -60,7 +90,7 @@ export default function Handle({
     return () => {
       ro.disconnect();
       registry.delete(key);
-      store.syncNodesToWorker?.();
+      updateNodeHandleBounds(store, nodeId);
     };
   }, [nodeId, id, type, position, store]);
 
