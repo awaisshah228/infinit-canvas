@@ -643,7 +643,7 @@ function routeEdgesAsync() {
     var edge = edges[ei];
     if (edge._customRendered) continue;
     var edgeType = edge.type || 'default';
-    if (edgeType !== 'step' && edgeType !== 'smoothstep' && edgeType !== 'default') continue;
+    if (edgeType === 'default' || edgeType === 'bezier' || edgeType === 'simplebezier' || edgeType === 'straight') continue;
 
     var sn = nodeLookup[edge.source];
     var tn = nodeLookup[edge.target];
@@ -1053,11 +1053,8 @@ function render() {
 
       var rp = edge._routedPoints;
       if (rp && rp.length >= 2) {
-        if (edgeType === 'step' || edgeType === 'smoothstep' || edgeType === 'straight') {
-          drawRoutedPath(path, rp);
-        } else {
-          drawRoutedCurve(path, rp);
-        }
+        // Always draw routed edges as orthogonal paths
+        drawRoutedPath(path, rp);
       } else if (edgeType === 'straight') {
         path.moveTo(ex1, ey1);
         path.lineTo(ex2, ey2);
@@ -1268,9 +1265,31 @@ function render() {
         }
         } catch(smoothErr) { console.error('[worker] smoothstep error:', smoothErr, 'edge:', edge.id); }
       } else {
-        var bp = getBezierPath(ex1, ey1, ex2, ey2);
+        // Bezier with stubs — always exit/enter handle direction first
+        var bSrcDir = srcHandle.position || 'right';
+        var bTgtDir = tgtHandle.position || 'left';
+        var BSTUB = 20;
+        // Stub points: go BSTUB px away from handle in handle direction
+        var bsx = ex1, bsy = ey1, btx = ex2, bty = ey2;
+        if (bSrcDir === 'right') bsx += BSTUB;
+        else if (bSrcDir === 'left') bsx -= BSTUB;
+        else if (bSrcDir === 'bottom') bsy += BSTUB;
+        else if (bSrcDir === 'top') bsy -= BSTUB;
+        if (bTgtDir === 'right') btx += BSTUB;
+        else if (bTgtDir === 'left') btx -= BSTUB;
+        else if (bTgtDir === 'bottom') bty += BSTUB;
+        else if (bTgtDir === 'top') bty -= BSTUB;
+        // Bezier control points from stub points
+        var bdx = Math.abs(btx - bsx);
+        var bcpOfs = Math.max(50, bdx * 0.5);
+        var bcp1x = bsx + (bSrcDir === 'left' ? -bcpOfs : bSrcDir === 'right' ? bcpOfs : 0);
+        var bcp1y = bsy + (bSrcDir === 'top' ? -bcpOfs : bSrcDir === 'bottom' ? bcpOfs : 0);
+        var bcp2x = btx + (bTgtDir === 'left' ? -bcpOfs : bTgtDir === 'right' ? bcpOfs : 0);
+        var bcp2y = bty + (bTgtDir === 'top' ? -bcpOfs : bTgtDir === 'bottom' ? bcpOfs : 0);
         path.moveTo(ex1, ey1);
-        path.bezierCurveTo(bp.cp1x, bp.cp1y, bp.cp2x, bp.cp2y, ex2, ey2);
+        path.lineTo(bsx, bsy); // stub out from source
+        path.bezierCurveTo(bcp1x, bcp1y, bcp2x, bcp2y, btx, bty);
+        path.lineTo(ex2, ey2); // stub into target
       }
 
       // Arrows (skip at very low zoom — sub-pixel)
