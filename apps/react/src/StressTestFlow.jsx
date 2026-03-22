@@ -101,13 +101,14 @@ export default function StressTestFlow() {
   }, [setNodes, setEdges]);
 
   const handleSetCount = useCallback((newCount) => {
+    // Skip if already at this count
+    if (newCount === count) return;
     setLoading(true);
     pendingCountRef.current = newCount;
-    // Defer so loader renders before heavy generation
     setTimeout(() => {
       setCount(newCount);
     }, 0);
-  }, []);
+  }, [count]);
 
   const onNodesProcessed = useCallback(() => {
     setLoading(false);
