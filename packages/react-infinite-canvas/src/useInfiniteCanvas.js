@@ -11,6 +11,7 @@
  * - Context store for child hooks (useReactFlow, useNodes, etc.)
  */
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { snapPosition as snapPos, clampPosition, getNodesBounds, getViewportForBounds } from './utils/graph.js';
 
 const canvasWorkerMap = new WeakMap();
 
@@ -44,18 +45,67 @@ export default function useInfiniteCanvas({
   onNodeDrag,
   onNodeDragStop,
   onEdgeClick,
+  onEdgeDoubleClick,
+  onEdgeMouseEnter,
+  onEdgeMouseMove,
+  onEdgeMouseLeave,
+  onEdgeContextMenu,
+  onNodeDoubleClick,
+  onNodeMouseEnter,
+  onNodeMouseMove,
+  onNodeMouseLeave,
+  onNodeContextMenu,
   onPaneClick,
+  onPaneContextMenu,
+  onPaneMouseEnter,
+  onPaneMouseMove,
+  onPaneMouseLeave,
   onSelectionChange,
+  onConnectStart,
+  onConnectEnd,
+  onInit,
+  onMoveStart,
+  onMove,
+  onMoveEnd,
+  onDelete,
+  onBeforeDelete,
+  onError,
+  isValidConnection,
   dark,
   gridSize = 40,
   zoomMin = 0.1,
   zoomMax = 4,
   initialCamera = { x: 0, y: 0, zoom: 1 },
+  fitView: fitViewOnInit = false,
+  fitViewOptions,
   nodesDraggable = true,
   nodesConnectable = true,
   elementsSelectable = true,
   multiSelectionKeyCode = 'Shift',
   selectionOnDrag = false,
+  selectionMode = 'partial',
+  connectionMode = 'loose',
+  connectionRadius = 20,
+  connectOnClick = false,
+  snapToGrid = false,
+  snapGrid = [15, 15],
+  deleteKeyCode = ['Delete', 'Backspace'],
+  panActivationKeyCode = ' ',
+  panOnScroll = false,
+  panOnScrollMode = 'free',
+  panOnScrollSpeed = 0.5,
+  zoomOnScroll = true,
+  zoomOnDoubleClick = true,
+  zoomOnPinch = true,
+  preventScrolling = true,
+  translateExtent,
+  nodeExtent,
+  defaultEdgeOptions = {},
+  autoPanOnNodeDrag = true,
+  autoPanOnConnect = true,
+  autoPanSpeed = 5,
+  edgesReconnectable = false,
+  elevateNodesOnSelect = false,
 } = {}) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
@@ -66,7 +116,6 @@ export default function useInfiniteCanvas({
   const edgesRef = useRef([...edges]);
   const draggingRef = useRef(false);
   const lastPtRef = useRef(null);
-  const onHudUpdateRef = useRef(onHudUpdate);
 
   // Node interaction state
   const dragNodeRef = useRef(null);
@@ -76,6 +125,8 @@ export default function useInfiniteCanvas({
   // Selection box state
   const selectionBoxRef = useRef(null); // { startWorld, endWorld }
   const multiKeyRef = useRef(false);
+  // Click-to-connect state
+  const clickConnectRef = useRef(null); // { nodeId, handleId, handleType }
 
   // Viewport and connection state for hooks
   const [viewport, setViewport] = useState({ x: initialCamera.x, y: initialCamera.y, zoom: initialCamera.zoom });
@@ -85,38 +136,48 @@ export default function useInfiniteCanvas({
   const viewportListeners = useMemo(() => new Set(), []);
   const selectionListeners = useMemo(() => new Set(), []);
 
-  // Callback refs
-  const onNodesChangeRef = useRef(onNodesChange);
-  const onEdgesChangeRef = useRef(onEdgesChange);
-  const onConnectRef = useRef(onConnect);
-  const onNodeClickRef = useRef(onNodeClick);
-  const onNodeDragStartRef = useRef(onNodeDragStart);
-  const onNodeDragRef = useRef(onNodeDrag);
-  const onNodeDragStopRef = useRef(onNodeDragStop);
-  const onEdgeClickRef = useRef(onEdgeClick);
-  const onPaneClickRef = useRef(onPaneClick);
-  const onSelectionChangeRef = useRef(onSelectionChange);
+  // Pan activation key
+  const panKeyRef = useRef(false);
 
-  useEffect(() => { onHudUpdateRef.current = onHudUpdate; }, [onHudUpdate]);
-  useEffect(() => { onNodesChangeRef.current = onNodesChange; }, [onNodesChange]);
-  useEffect(() => { onEdgesChangeRef.current = onEdgesChange; }, [onEdgesChange]);
-  useEffect(() => { onConnectRef.current = onConnect; }, [onConnect]);
-  useEffect(() => { onNodeClickRef.current = onNodeClick; }, [onNodeClick]);
-  useEffect(() => { onNodeDragStartRef.current = onNodeDragStart; }, [onNodeDragStart]);
-  useEffect(() => { onNodeDragRef.current = onNodeDrag; }, [onNodeDrag]);
-  useEffect(() => { onNodeDragStopRef.current = onNodeDragStop; }, [onNodeDragStop]);
-  useEffect(() => { onEdgeClickRef.current = onEdgeClick; }, [onEdgeClick]);
-  useEffect(() => { onPaneClickRef.current = onPaneClick; }, [onPaneClick]);
-  useEffect(() => { onSelectionChangeRef.current = onSelectionChange; }, [onSelectionChange]);
+  // Callback refs — stable references to latest callback props
+  const refs = useRef({});
+  refs.current = {
+    onHudUpdate, onNodesChange, onEdgesChange, onConnect, onNodeClick,
+    onNodeDragStart, onNodeDrag, onNodeDragStop, onEdgeClick,
+    onEdgeDoubleClick, onEdgeMouseEnter, onEdgeMouseMove, onEdgeMouseLeave, onEdgeContextMenu,
+    onNodeDoubleClick, onNodeMouseEnter, onNodeMouseMove, onNodeMouseLeave, onNodeContextMenu,
+    onPaneClick, onPaneContextMenu, onPaneMouseEnter, onPaneMouseMove, onPaneMouseLeave,
+    onSelectionChange, onConnectStart, onConnectEnd,
+    onInit, onMoveStart, onMove, onMoveEnd, onDelete, onBeforeDelete, onError,
+    isValidConnection,
+  };
+  // Shorthand accessors (keeps rest of code cleaner)
+  const onNodesChangeRef = { get current() { return refs.current.onNodesChange; } };
+  const onEdgesChangeRef = { get current() { return refs.current.onEdgesChange; } };
+  const onConnectRef = { get current() { return refs.current.onConnect; } };
+  const onNodeClickRef = { get current() { return refs.current.onNodeClick; } };
+  const onNodeDragStartRef = { get current() { return refs.current.onNodeDragStart; } };
+  const onNodeDragRef = { get current() { return refs.current.onNodeDrag; } };
+  const onNodeDragStopRef = { get current() { return refs.current.onNodeDragStop; } };
+  const onEdgeClickRef = { get current() { return refs.current.onEdgeClick; } };
+  const onPaneClickRef = { get current() { return refs.current.onPaneClick; } };
+  const onSelectionChangeRef = { get current() { return refs.current.onSelectionChange; } };
+  const onHudUpdateRef = { get current() { return refs.current.onHudUpdate; } };
 
-  // Track multi-select key
+  // Track multi-select key and pan activation key
   useEffect(() => {
-    const down = (e) => { if (e.key === multiSelectionKeyCode) multiKeyRef.current = true; };
-    const up = (e) => { if (e.key === multiSelectionKeyCode) multiKeyRef.current = false; };
+    const down = (e) => {
+      if (e.key === multiSelectionKeyCode) multiKeyRef.current = true;
+      if (e.key === panActivationKeyCode) panKeyRef.current = true;
+    };
+    const up = (e) => {
+      if (e.key === multiSelectionKeyCode) multiKeyRef.current = false;
+      if (e.key === panActivationKeyCode) panKeyRef.current = false;
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
-  }, [multiSelectionKeyCode]);
+  }, [multiSelectionKeyCode, panActivationKeyCode]);
 
   // Notify selection change listeners
   const notifySelectionChange = useCallback(() => {
@@ -133,10 +194,33 @@ export default function useInfiniteCanvas({
     workerRef.current?.postMessage({ type: 'cards', data: { cards: [...cards] } });
   }, [cards]);
 
+  // Resolve absolute positions for nodes with parentId
+  const resolveAbsolutePositions = useCallback((nds) => {
+    const lookup = {};
+    for (const n of nds) lookup[n.id] = n;
+    return nds.map((n) => {
+      if (!n.parentId) return n;
+      const parent = lookup[n.parentId];
+      if (!parent) return n;
+      // Recursively resolve parent positions
+      let absX = n.position.x;
+      let absY = n.position.y;
+      let p = parent;
+      while (p) {
+        absX += p.position.x;
+        absY += p.position.y;
+        p = p.parentId ? lookup[p.parentId] : null;
+      }
+      return { ...n, _absolutePosition: { x: absX, y: absY } };
+    });
+  }, []);
+
   useEffect(() => {
     nodesRef.current = [...nodes];
-    workerRef.current?.postMessage({ type: 'nodes', data: { nodes: [...nodes] } });
-  }, [nodes]);
+    // Send nodes with resolved absolute positions to worker
+    const resolved = resolveAbsolutePositions(nodes);
+    workerRef.current?.postMessage({ type: 'nodes', data: { nodes: resolved } });
+  }, [nodes, resolveAbsolutePositions]);
 
   useEffect(() => {
     edgesRef.current = [...edges];
@@ -202,7 +286,7 @@ export default function useInfiniteCanvas({
   const findHandleAt = useCallback((wx, wy) => {
     const nds = nodesRef.current;
     const cam = cameraRef.current;
-    const hitRadius = HANDLE_RADIUS / cam.zoom;
+    const hitRadius = Math.max(HANDLE_RADIUS, connectionRadius) / cam.zoom;
     for (let i = nds.length - 1; i >= 0; i--) {
       const n = nds[i];
       if (n.hidden) continue;
@@ -288,13 +372,27 @@ export default function useInfiniteCanvas({
     if (dark !== undefined) workerRef.current?.postMessage({ type: 'theme', data: { dark } });
   }, [dark]);
 
-  const sendCamera = useCallback(() => {
+  const sendCamera = useCallback((moveEvent = null) => {
     const cam = cameraRef.current;
+    // Clamp to translateExtent if set
+    if (translateExtent) {
+      const wrap = wrapRef.current;
+      if (wrap) {
+        const rect = wrap.getBoundingClientRect();
+        const minX = -translateExtent[1][0] * cam.zoom + rect.width;
+        const minY = -translateExtent[1][1] * cam.zoom + rect.height;
+        const maxX = -translateExtent[0][0] * cam.zoom;
+        const maxY = -translateExtent[0][1] * cam.zoom;
+        cam.x = Math.min(maxX, Math.max(minX, cam.x));
+        cam.y = Math.min(maxY, Math.max(minY, cam.y));
+      }
+    }
     workerRef.current?.postMessage({ type: 'camera', data: { camera: { ...cam } } });
     const vp = { x: cam.x, y: cam.y, zoom: cam.zoom };
     setViewport(vp);
+    refs.current.onMove?.(moveEvent, vp);
     for (const cb of viewportListeners) cb(vp);
-  }, [viewportListeners]);
+  }, [viewportListeners, translateExtent]);
 
   const sendConnecting = useCallback(() => {
     const c = connectingRef.current;
@@ -326,14 +424,42 @@ export default function useInfiniteCanvas({
     // Handle hit (connection)
     if (hasNodes && nodesConnectable) {
       const handle = findHandleAt(world.x, world.y);
-      if (handle && handle.type === 'source') {
+      // Click-to-connect: if we already have a pending click connection, try to complete it
+      if (connectOnClick && clickConnectRef.current && handle) {
+        const start = clickConnectRef.current;
+        if (handle.nodeId !== start.nodeId) {
+          const startedFromTarget = start.handleType === 'target';
+          const conn = startedFromTarget
+            ? { source: handle.nodeId, target: start.nodeId, sourceHandle: handle.handleId || null, targetHandle: start.handleId }
+            : { source: start.nodeId, target: handle.nodeId, sourceHandle: start.handleId, targetHandle: handle.handleId || null };
+          const valid = refs.current.isValidConnection ? refs.current.isValidConnection(conn) : true;
+          if (valid) onConnectRef.current?.({ ...conn, ...defaultEdgeOptions });
+        }
+        clickConnectRef.current = null;
+        return;
+      }
+
+      // In strict mode: only source handles can start connections
+      // In loose mode: any handle can start a connection
+      const canStartConnection = connectionMode === 'strict'
+        ? handle && handle.type === 'source'
+        : handle != null;
+      if (canStartConnection) {
+        // Click-to-connect mode: just store the handle, don't start drag
+        if (connectOnClick) {
+          clickConnectRef.current = { nodeId: handle.nodeId, handleId: handle.handleId || null, handleType: handle.type };
+          refs.current.onConnectStart?.(e, { nodeId: handle.nodeId, handleId: handle.handleId, handleType: handle.type });
+          return;
+        }
         connectingRef.current = {
           sourceId: handle.nodeId,
           sourceHandle: handle.handleId || null,
+          sourceType: handle.type,
           startPos: { x: handle.x, y: handle.y },
         };
         connectEndRef.current = { x: world.x, y: world.y };
         wrapRef.current?.setPointerCapture(e.pointerId);
+        refs.current.onConnectStart?.(e, { nodeId: handle.nodeId, handleId: handle.handleId, handleType: handle.type });
         sendConnecting();
         return;
       }
@@ -365,6 +491,16 @@ export default function useInfiniteCanvas({
           }
           if (changes.length) {
             onNodesChangeRef.current(changes);
+            // Elevate selected node to top z-index by moving to end of array
+            if (elevateNodesOnSelect && !isMulti) {
+              const idx = nodesRef.current.findIndex((n) => n.id === node.id);
+              if (idx >= 0 && idx < nodesRef.current.length - 1) {
+                onNodesChangeRef.current([
+                  { id: node.id, type: 'remove' },
+                  { type: 'add', item: { ...nodesRef.current[idx], selected: true } },
+                ]);
+              }
+            }
             notifySelectionChange();
           }
         }
@@ -455,6 +591,26 @@ export default function useInfiniteCanvas({
     if (connectingRef.current) {
       connectEndRef.current = screenToWorld(e.clientX, e.clientY);
       sendConnecting();
+      // Auto-pan when connecting near canvas edge
+      if (autoPanOnConnect) {
+        const wrap = wrapRef.current;
+        if (wrap) {
+          const rect = wrap.getBoundingClientRect();
+          const edgeZone = 40;
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          let panX = 0, panY = 0;
+          if (mx < edgeZone) panX = autoPanSpeed;
+          else if (mx > rect.width - edgeZone) panX = -autoPanSpeed;
+          if (my < edgeZone) panY = autoPanSpeed;
+          else if (my > rect.height - edgeZone) panY = -autoPanSpeed;
+          if (panX || panY) {
+            cameraRef.current.x += panX;
+            cameraRef.current.y += panY;
+            sendCamera(e);
+          }
+        }
+      }
       return;
     }
 
@@ -476,8 +632,11 @@ export default function useInfiniteCanvas({
           if (n.hidden) continue;
           const nw = n.width || DEFAULT_NODE_WIDTH;
           const nh = n.height || DEFAULT_NODE_HEIGHT;
-          const inside = n.position.x + nw > minX && n.position.x < maxX &&
-                         n.position.y + nh > minY && n.position.y < maxY;
+          const inside = selectionMode === 'full'
+            ? (n.position.x >= minX && n.position.x + nw <= maxX &&
+               n.position.y >= minY && n.position.y + nh <= maxY)
+            : (n.position.x + nw > minX && n.position.x < maxX &&
+               n.position.y + nh > minY && n.position.y < maxY);
           if (inside !== !!n.selected) {
             changes.push({ id: n.id, type: 'select', selected: inside });
           }
@@ -487,7 +646,7 @@ export default function useInfiniteCanvas({
       return;
     }
 
-    // Node drag (multi-drag support)
+    // Node drag (multi-drag support + snap-to-grid + nodeExtent clamping)
     if (dragNodeRef.current) {
       const world = screenToWorld(e.clientX, e.clientY);
       const drag = dragNodeRef.current;
@@ -495,13 +654,41 @@ export default function useInfiniteCanvas({
       const dy = world.y - drag.startMouse.y;
 
       if (onNodesChangeRef.current) {
+        let pos = { x: drag.startPos.x + dx, y: drag.startPos.y + dy };
+        if (snapToGrid) pos = snapPos(pos, snapGrid);
+        if (nodeExtent) pos = clampPosition(pos, nodeExtent);
+
         const changes = [
-          { id: drag.id, type: 'position', position: { x: drag.startPos.x + dx, y: drag.startPos.y + dy }, dragging: true },
+          { id: drag.id, type: 'position', position: pos, dragging: true },
         ];
         for (const s of drag.selectedStarts) {
-          changes.push({ id: s.id, type: 'position', position: { x: s.startPos.x + dx, y: s.startPos.y + dy }, dragging: true });
+          let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
+          if (snapToGrid) sPos = snapPos(sPos, snapGrid);
+          if (nodeExtent) sPos = clampPosition(sPos, nodeExtent);
+          changes.push({ id: s.id, type: 'position', position: sPos, dragging: true });
         }
         onNodesChangeRef.current(changes);
+      }
+
+      // Auto-pan when dragging near canvas edge
+      if (autoPanOnNodeDrag) {
+        const wrap = wrapRef.current;
+        if (wrap) {
+          const rect = wrap.getBoundingClientRect();
+          const edgeZone = 40;
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          let panX = 0, panY = 0;
+          if (mx < edgeZone) panX = autoPanSpeed;
+          else if (mx > rect.width - edgeZone) panX = -autoPanSpeed;
+          if (my < edgeZone) panY = autoPanSpeed;
+          else if (my > rect.height - edgeZone) panY = -autoPanSpeed;
+          if (panX || panY) {
+            cameraRef.current.x += panX;
+            cameraRef.current.y += panY;
+            sendCamera(e);
+          }
+        }
       }
 
       const node = nodesRef.current.find((n) => n.id === drag.id);
@@ -523,14 +710,33 @@ export default function useInfiniteCanvas({
     if (connectingRef.current) {
       const world = screenToWorld(e.clientX, e.clientY);
       const handle = findHandleAt(world.x, world.y);
-      if (handle && handle.type === 'target' && handle.nodeId !== connectingRef.current.sourceId) {
-        onConnectRef.current?.({
-          source: connectingRef.current.sourceId,
-          target: handle.nodeId,
-          sourceHandle: connectingRef.current.sourceHandle,
-          targetHandle: handle.handleId || null,
-        });
+      // In loose mode, allow connecting to any handle on a different node
+      // In strict mode, only target handles can receive connections
+      const canEnd = handle && handle.nodeId !== connectingRef.current.sourceId &&
+        (connectionMode === 'loose' || handle.type === 'target');
+      if (canEnd) {
+        // If source started from a target handle (loose mode), swap
+        const startedFromTarget = connectingRef.current.sourceType === 'target';
+        const conn = startedFromTarget
+          ? {
+              source: handle.nodeId,
+              target: connectingRef.current.sourceId,
+              sourceHandle: handle.handleId || null,
+              targetHandle: connectingRef.current.sourceHandle,
+            }
+          : {
+              source: connectingRef.current.sourceId,
+              target: handle.nodeId,
+              sourceHandle: connectingRef.current.sourceHandle,
+              targetHandle: handle.handleId || null,
+            };
+        // Validate connection
+        const valid = refs.current.isValidConnection ? refs.current.isValidConnection(conn) : true;
+        if (valid) {
+          onConnectRef.current?.({ ...conn, ...defaultEdgeOptions });
+        }
       }
+      refs.current.onConnectEnd?.(e.nativeEvent || e);
       connectingRef.current = null;
       connectEndRef.current = null;
       sendConnecting();
@@ -566,13 +772,113 @@ export default function useInfiniteCanvas({
     wrapRef.current?.classList.remove('dragging');
   }, [screenToWorld, findHandleAt, sendConnecting, sendSelectionBox, notifySelectionChange]);
 
-  // Zoom
+  // Wheel: zoom or pan-on-scroll
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     const onWheel = (e) => {
-      e.preventDefault();
+      if (preventScrolling) e.preventDefault();
+      const cam = cameraRef.current;
+
+      if (panOnScroll || panKeyRef.current) {
+        // Pan mode
+        const speed = panOnScrollSpeed;
+        if (panOnScrollMode === 'horizontal') {
+          cam.x -= e.deltaY * speed;
+        } else if (panOnScrollMode === 'vertical') {
+          cam.y -= e.deltaY * speed;
+        } else {
+          cam.x -= e.deltaX * speed;
+          cam.y -= e.deltaY * speed;
+        }
+        sendCamera(e);
+        return;
+      }
+
+      if (!zoomOnScroll) return;
+
       const factor = e.deltaY > 0 ? 0.92 : 1.08;
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      cam.x = mx - (mx - cam.x) * factor;
+      cam.y = my - (my - cam.y) * factor;
+      cam.zoom = Math.min(zoomMax, Math.max(zoomMin, cam.zoom * factor));
+      sendCamera(e);
+    };
+    wrap.addEventListener('wheel', onWheel, { passive: !preventScrolling });
+    return () => wrap.removeEventListener('wheel', onWheel);
+  }, [sendCamera, zoomMin, zoomMax, panOnScroll, panOnScrollMode, panOnScrollSpeed, zoomOnScroll, preventScrolling]);
+
+  // Pinch-to-zoom (touch)
+  useEffect(() => {
+    if (!zoomOnPinch) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let lastPinchDist = 0;
+    let pinchCenter = null;
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastPinchDist = Math.hypot(dx, dy);
+        const rect = wrap.getBoundingClientRect();
+        pinchCenter = {
+          x: (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left,
+          y: (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top,
+        };
+        e.preventDefault();
+      }
+    };
+    const onTouchMove = (e) => {
+      if (e.touches.length === 2 && lastPinchDist > 0) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const factor = dist / lastPinchDist;
+        lastPinchDist = dist;
+
+        const cam = cameraRef.current;
+        const mx = pinchCenter.x;
+        const my = pinchCenter.y;
+        cam.x = mx - (mx - cam.x) * factor;
+        cam.y = my - (my - cam.y) * factor;
+        cam.zoom = Math.min(zoomMax, Math.max(zoomMin, cam.zoom * factor));
+        sendCamera(e);
+      }
+    };
+    const onTouchEnd = () => { lastPinchDist = 0; pinchCenter = null; };
+
+    wrap.addEventListener('touchstart', onTouchStart, { passive: false });
+    wrap.addEventListener('touchmove', onTouchMove, { passive: false });
+    wrap.addEventListener('touchend', onTouchEnd);
+    return () => {
+      wrap.removeEventListener('touchstart', onTouchStart);
+      wrap.removeEventListener('touchmove', onTouchMove);
+      wrap.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [zoomOnPinch, sendCamera, zoomMin, zoomMax]);
+
+  // Double-click to zoom
+  useEffect(() => {
+    if (!zoomOnDoubleClick) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const onDblClick = (e) => {
+      // Don't zoom if clicking on a node area — check if any node is under cursor
+      const world = screenToWorld(e.clientX, e.clientY);
+      if (findNodeAt(world.x, world.y)) {
+        refs.current.onNodeDoubleClick?.(e, findNodeAt(world.x, world.y));
+        return;
+      }
+      const edge = findEdgeAt(world.x, world.y);
+      if (edge) {
+        refs.current.onEdgeDoubleClick?.(e, edge);
+        return;
+      }
+      const factor = 1.5;
       const rect = wrap.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
@@ -580,30 +886,108 @@ export default function useInfiniteCanvas({
       cam.x = mx - (mx - cam.x) * factor;
       cam.y = my - (my - cam.y) * factor;
       cam.zoom = Math.min(zoomMax, Math.max(zoomMin, cam.zoom * factor));
-      sendCamera();
+      sendCamera(e);
     };
-    wrap.addEventListener('wheel', onWheel, { passive: false });
-    return () => wrap.removeEventListener('wheel', onWheel);
-  }, [sendCamera, zoomMin, zoomMax]);
+    wrap.addEventListener('dblclick', onDblClick);
+    return () => wrap.removeEventListener('dblclick', onDblClick);
+  }, [zoomOnDoubleClick, sendCamera, zoomMin, zoomMax, screenToWorld, findNodeAt, findEdgeAt]);
 
-  // Delete key
+  // Context menu
   useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const onCtxMenu = (e) => {
+      const world = screenToWorld(e.clientX, e.clientY);
+      const node = findNodeAt(world.x, world.y);
+      if (node) {
+        refs.current.onNodeContextMenu?.(e, node);
+        return;
+      }
+      const edge = findEdgeAt(world.x, world.y);
+      if (edge) {
+        refs.current.onEdgeContextMenu?.(e, edge);
+        return;
+      }
+      refs.current.onPaneContextMenu?.(e);
+    };
+    wrap.addEventListener('contextmenu', onCtxMenu);
+    return () => wrap.removeEventListener('contextmenu', onCtxMenu);
+  }, [screenToWorld, findNodeAt, findEdgeAt]);
+
+  // Mouse enter/move/leave on wrapper (for pane events + node/edge hover)
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let lastHoverNode = null;
+    let lastHoverEdge = null;
+
+    const onMouseMove = (e) => {
+      refs.current.onPaneMouseMove?.(e);
+      const world = screenToWorld(e.clientX, e.clientY);
+      const node = findNodeAt(world.x, world.y);
+      if (node !== lastHoverNode) {
+        if (lastHoverNode) refs.current.onNodeMouseLeave?.(e, lastHoverNode);
+        if (node) refs.current.onNodeMouseEnter?.(e, node);
+        lastHoverNode = node;
+      }
+      if (node) refs.current.onNodeMouseMove?.(e, node);
+
+      if (!node) {
+        const edge = findEdgeAt(world.x, world.y);
+        if (edge !== lastHoverEdge) {
+          if (lastHoverEdge) refs.current.onEdgeMouseLeave?.(e, lastHoverEdge);
+          if (edge) refs.current.onEdgeMouseEnter?.(e, edge);
+          lastHoverEdge = edge;
+        }
+        if (edge) refs.current.onEdgeMouseMove?.(e, edge);
+      }
+    };
+    const onMouseEnter = (e) => refs.current.onPaneMouseEnter?.(e);
+    const onMouseLeave = (e) => {
+      refs.current.onPaneMouseLeave?.(e);
+      if (lastHoverNode) { refs.current.onNodeMouseLeave?.(e, lastHoverNode); lastHoverNode = null; }
+      if (lastHoverEdge) { refs.current.onEdgeMouseLeave?.(e, lastHoverEdge); lastHoverEdge = null; }
+    };
+
+    wrap.addEventListener('mousemove', onMouseMove);
+    wrap.addEventListener('mouseenter', onMouseEnter);
+    wrap.addEventListener('mouseleave', onMouseLeave);
+    return () => {
+      wrap.removeEventListener('mousemove', onMouseMove);
+      wrap.removeEventListener('mouseenter', onMouseEnter);
+      wrap.removeEventListener('mouseleave', onMouseLeave);
+    };
+  }, [screenToWorld, findNodeAt, findEdgeAt]);
+
+  // Delete key (configurable)
+  useEffect(() => {
+    const delKeys = Array.isArray(deleteKeyCode) ? deleteKeyCode : [deleteKeyCode];
+    const onKeyDown = async (e) => {
+      if (delKeys.includes(e.key)) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
         const selectedNodes = nodesRef.current.filter((n) => n.selected);
+        const selectedEdges = edgesRef.current.filter((ed) => ed.selected);
+        if (!selectedNodes.length && !selectedEdges.length) return;
+
+        // onBeforeDelete can cancel
+        if (refs.current.onBeforeDelete) {
+          const ok = await refs.current.onBeforeDelete({ nodes: selectedNodes, edges: selectedEdges });
+          if (!ok) return;
+        }
+
         const selectedNodeIds = new Set(selectedNodes.map((n) => n.id));
         if (selectedNodes.length && onNodesChangeRef.current) {
           onNodesChangeRef.current(selectedNodes.map((n) => ({ id: n.id, type: 'remove' })));
           if (onEdgesChangeRef.current) {
-            const connected = edgesRef.current.filter((e) => selectedNodeIds.has(e.source) || selectedNodeIds.has(e.target));
-            if (connected.length) onEdgesChangeRef.current(connected.map((e) => ({ id: e.id, type: 'remove' })));
+            const connected = edgesRef.current.filter((ed) => selectedNodeIds.has(ed.source) || selectedNodeIds.has(ed.target));
+            if (connected.length) onEdgesChangeRef.current(connected.map((ed) => ({ id: ed.id, type: 'remove' })));
           }
         }
-        const selectedEdges = edgesRef.current.filter((e) => e.selected);
         if (selectedEdges.length && onEdgesChangeRef.current) {
-          onEdgesChangeRef.current(selectedEdges.map((e) => ({ id: e.id, type: 'remove' })));
+          onEdgesChangeRef.current(selectedEdges.map((ed) => ({ id: ed.id, type: 'remove' })));
         }
+
+        refs.current.onDelete?.({ nodes: selectedNodes, edges: selectedEdges });
       }
       // Select all with Ctrl/Cmd+A
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
@@ -614,14 +998,51 @@ export default function useInfiniteCanvas({
           if (changes.length) onNodesChangeRef.current(changes);
         }
         if (onEdgesChangeRef.current) {
-          const changes = edgesRef.current.filter((e) => !e.selected).map((e) => ({ id: e.id, type: 'select', selected: true }));
+          const changes = edgesRef.current.filter((ed) => !ed.selected).map((ed) => ({ id: ed.id, type: 'select', selected: true }));
           if (changes.length) onEdgesChangeRef.current(changes);
         }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [deleteKeyCode]);
+
+  // fitView on init + onInit callback
+  const initCalledRef = useRef(false);
+  useEffect(() => {
+    if (initCalledRef.current) return;
+    if (!workerRef.current) return;
+    initCalledRef.current = true;
+
+    if (fitViewOnInit && nodesRef.current.length > 0) {
+      const wrap = wrapRef.current;
+      if (wrap) {
+        const rect = wrap.getBoundingClientRect();
+        const padding = fitViewOptions?.padding ?? 0.1;
+        const bounds = getNodesBounds(nodesRef.current);
+        const vp = getViewportForBounds(bounds, rect.width, rect.height, padding);
+        if (fitViewOptions?.maxZoom) vp.zoom = Math.min(vp.zoom, fitViewOptions.maxZoom);
+        if (fitViewOptions?.minZoom) vp.zoom = Math.max(vp.zoom, fitViewOptions.minZoom);
+        cameraRef.current = vp;
+        sendCamera();
+      }
+    }
+
+    refs.current.onInit?.({
+      getNodes: () => [...nodesRef.current],
+      getEdges: () => [...edgesRef.current],
+      getViewport: () => ({ ...cameraRef.current }),
+      fitView: (opts = {}) => {
+        const wrap = wrapRef.current;
+        if (!wrap || !nodesRef.current.length) return;
+        const rect = wrap.getBoundingClientRect();
+        const bounds = getNodesBounds(nodesRef.current);
+        const vp = getViewportForBounds(bounds, rect.width, rect.height, opts.padding ?? 0.1);
+        cameraRef.current = vp;
+        sendCamera();
+      },
+    });
+  });
 
   // Public methods
   const resetView = useCallback(() => {
@@ -679,12 +1100,13 @@ export default function useInfiniteCanvas({
     onNodesChangeRef, onEdgesChangeRef,
     sendCamera, screenToWorld,
     viewportListeners, selectionListeners,
-    zoomMin, zoomMax,
+    zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent,
+    defaultEdgeOptions,
     get nodes() { return nodes; },
     get edges() { return edges; },
     get viewport() { return viewport; },
     get connection() { return connection; },
-  }), [nodes, edges, viewport, connection, sendCamera, screenToWorld, viewportListeners, selectionListeners, zoomMin, zoomMax]);
+  }), [nodes, edges, viewport, connection, sendCamera, screenToWorld, viewportListeners, selectionListeners, zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent, defaultEdgeOptions]);
 
   return {
     wrapRef, canvasRef,

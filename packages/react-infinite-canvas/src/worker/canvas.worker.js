@@ -29,6 +29,11 @@ var DEFAULT_NODE_HEIGHT = 60;
 var NODE_RADIUS = 8;
 var HANDLE_RADIUS = 5;
 
+// Get render position (uses absolute position for sub-flow nodes)
+function getNodePos(node) {
+  return node._absolutePosition || node.position;
+}
+
 // Handle position helpers
 // Resolves a handle definition to absolute world {x, y}
 // handle: { type, position?, x?, y?, id? }
@@ -55,14 +60,14 @@ function getNodeHandles(node) {
   var nh = node.height || DEFAULT_NODE_HEIGHT;
   if (node.handles && node.handles.length > 0) {
     return node.handles.map(function(h) {
-      var pos = resolveHandlePos(h, node.position.x, node.position.y, nw, nh);
+      var pos = resolveHandlePos(h, getNodePos(node).x, getNodePos(node).y, nw, nh);
       return { id: h.id || null, type: h.type, x: pos.x, y: pos.y, position: h.position };
     });
   }
   // Default handles: source on right, target on left
   return [
-    { id: null, type: 'target', x: node.position.x, y: node.position.y + nh / 2, position: 'left' },
-    { id: null, type: 'source', x: node.position.x + nw, y: node.position.y + nh / 2, position: 'right' },
+    { id: null, type: 'target', x: getNodePos(node).x, y: getNodePos(node).y + nh / 2, position: 'left' },
+    { id: null, type: 'source', x: getNodePos(node).x + nw, y: getNodePos(node).y + nh / 2, position: 'right' },
   ];
 }
 
@@ -82,9 +87,9 @@ function findEdgeHandle(node, handleType, handleId) {
   var nw = node.width || DEFAULT_NODE_WIDTH;
   var nh = node.height || DEFAULT_NODE_HEIGHT;
   if (handleType === 'source') {
-    return { x: node.position.x + nw, y: node.position.y + nh / 2 };
+    return { x: getNodePos(node).x + nw, y: getNodePos(node).y + nh / 2 };
   }
-  return { x: node.position.x, y: node.position.y + nh / 2 };
+  return { x: getNodePos(node).x, y: getNodePos(node).y + nh / 2 };
 }
 
 // ── Performance: pre-computed theme colors ──────────────────────
@@ -511,8 +516,8 @@ function render() {
       if (vn.hidden) continue;
       var vnw = vn.width || DEFAULT_NODE_WIDTH;
       var vnh = vn.height || DEFAULT_NODE_HEIGHT;
-      if (vn.position.x + vnw < worldLeft || vn.position.x > worldRight ||
-          vn.position.y + vnh < worldTop || vn.position.y > worldBottom) continue;
+      if (getNodePos(vn).x + vnw < worldLeft || getNodePos(vn).x > worldRight ||
+          getNodePos(vn).y + vnh < worldTop || getNodePos(vn).y > worldBottom) continue;
       visibleNodes.push(vn);
       visibleNodeSet[vn.id] = true;
     }
@@ -722,7 +727,7 @@ function render() {
       ctx.beginPath();
       for (var nsi = 0; nsi < visNodeCount; nsi++) {
         var ns = visibleNodes[nsi];
-        ctx.roundRect(ns.position.x, ns.position.y, ns.width || DEFAULT_NODE_WIDTH, ns.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
+        ctx.roundRect(getNodePos(ns).x, getNodePos(ns).y, ns.width || DEFAULT_NODE_WIDTH, ns.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
       }
       ctx.fill();
       ctx.shadowColor = 'transparent';
@@ -736,7 +741,7 @@ function render() {
       ctx.beginPath();
       for (var nbi = 0; nbi < visNodeCount; nbi++) {
         var nb = visibleNodes[nbi];
-        ctx.roundRect(nb.position.x, nb.position.y, nb.width || DEFAULT_NODE_WIDTH, nb.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
+        ctx.roundRect(getNodePos(nb).x, getNodePos(nb).y, nb.width || DEFAULT_NODE_WIDTH, nb.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
       }
       ctx.fill();
     }
@@ -748,7 +753,7 @@ function render() {
     for (var nbi2 = 0; nbi2 < visNodeCount; nbi2++) {
       var nb2 = visibleNodes[nbi2];
       if (nb2.selected) continue;
-      ctx.roundRect(nb2.position.x, nb2.position.y, nb2.width || DEFAULT_NODE_WIDTH, nb2.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
+      ctx.roundRect(getNodePos(nb2).x, getNodePos(nb2).y, nb2.width || DEFAULT_NODE_WIDTH, nb2.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
     }
     ctx.stroke();
 
@@ -761,7 +766,7 @@ function render() {
       var nbs2 = visibleNodes[nbs];
       if (!nbs2.selected) continue;
       hasSelected = true;
-      ctx.roundRect(nbs2.position.x, nbs2.position.y, nbs2.width || DEFAULT_NODE_WIDTH, nbs2.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
+      ctx.roundRect(getNodePos(nbs2).x, getNodePos(nbs2).y, nbs2.width || DEFAULT_NODE_WIDTH, nbs2.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
     }
     if (hasSelected) ctx.stroke();
 
@@ -776,7 +781,7 @@ function render() {
         if (!nt.data || !nt.data.label) continue;
         var ntw = nt.width || DEFAULT_NODE_WIDTH;
         var nth = nt.height || DEFAULT_NODE_HEIGHT;
-        ctx.fillText(nt.data.label, nt.position.x + ntw / 2, nt.position.y + nth / 2, ntw - 24);
+        ctx.fillText(nt.data.label, getNodePos(nt).x + ntw / 2, getNodePos(nt).y + nth / 2, ntw - 24);
       }
       ctx.textAlign = 'start';
       ctx.textBaseline = 'alphabetic';

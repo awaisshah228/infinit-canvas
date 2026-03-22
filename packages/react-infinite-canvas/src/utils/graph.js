@@ -62,3 +62,72 @@ export function getViewportForBounds(bounds, viewportWidth, viewportHeight, padd
     zoom,
   };
 }
+
+export function snapPosition(position, snapGrid) {
+  return {
+    x: snapGrid[0] * Math.round(position.x / snapGrid[0]),
+    y: snapGrid[1] * Math.round(position.y / snapGrid[1]),
+  };
+}
+
+export function clampPosition(position, extent) {
+  return {
+    x: Math.min(Math.max(position.x, extent[0][0]), extent[1][0]),
+    y: Math.min(Math.max(position.y, extent[0][1]), extent[1][1]),
+  };
+}
+
+export function getNodeDimensions(node) {
+  return {
+    width: node.width || node.measured?.width || DEFAULT_NODE_WIDTH,
+    height: node.height || node.measured?.height || DEFAULT_NODE_HEIGHT,
+  };
+}
+
+export function getNodesInside(nodes, rect, viewport = { x: 0, y: 0, zoom: 1 }, partially = false) {
+  const rLeft = rect.x;
+  const rTop = rect.y;
+  const rRight = rect.x + rect.width;
+  const rBottom = rect.y + rect.height;
+
+  return nodes.filter((node) => {
+    const { width: nw, height: nh } = getNodeDimensions(node);
+    const nLeft = node.position.x;
+    const nTop = node.position.y;
+    const nRight = nLeft + nw;
+    const nBottom = nTop + nh;
+
+    if (partially) {
+      return nLeft < rRight && nRight > rLeft && nTop < rBottom && nBottom > rTop;
+    }
+    return nLeft >= rLeft && nRight <= rRight && nTop >= rTop && nBottom <= rBottom;
+  });
+}
+
+export function rectToBox(rect) {
+  return { x: rect.x, y: rect.y, x2: rect.x + rect.width, y2: rect.y + rect.height };
+}
+
+export function boxToRect(box) {
+  return { x: box.x, y: box.y, width: box.x2 - box.x, height: box.y2 - box.y };
+}
+
+export function getBoundsOfBoxes(box1, box2) {
+  return {
+    x: Math.min(box1.x, box2.x),
+    y: Math.min(box1.y, box2.y),
+    x2: Math.max(box1.x2, box2.x2),
+    y2: Math.max(box1.y2, box2.y2),
+  };
+}
+
+export function getOverlappingArea(rectA, rectB) {
+  const xOverlap = Math.max(0, Math.min(rectA.x + rectA.width, rectB.x + rectB.width) - Math.max(rectA.x, rectB.x));
+  const yOverlap = Math.max(0, Math.min(rectA.y + rectA.height, rectB.y + rectB.height) - Math.max(rectA.y, rectB.y));
+  return xOverlap * yOverlap;
+}
+
+export function nodeToRect(node) {
+  const { width, height } = getNodeDimensions(node);
+  return { x: node.position.x, y: node.position.y, width, height };
+}

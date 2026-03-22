@@ -5,8 +5,13 @@
   "type": "module",
   "main": "./src/index.js",
   "module": "./src/index.js",
+  "types": "./src/types.d.ts",
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "types": "./src/types.d.ts",
+      "import": "./src/index.js",
+      "default": "./src/index.js"
+    },
     "./styles.css": "./src/styles.css"
   },
   "files": [

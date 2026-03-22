@@ -294,3 +294,65 @@ export function useKeyPress(keyOrKeys) {
 
   return pressed;
 }
+
+// ── useUpdateNodeInternals ───────────────────────────────────────
+// Force recalculate node internals (handles, bounds)
+export function useUpdateNodeInternals() {
+  const store = useCanvasStore();
+  return useCallback((nodeIds) => {
+    // In our canvas-based approach, re-syncing nodes to worker triggers re-render
+    const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
+    // Simply re-post current nodes to worker to force re-render
+    store.workerRef.current?.postMessage({
+      type: 'nodes',
+      data: { nodes: [...store.nodesRef.current] },
+    });
+  }, [store]);
+}
+
+// ── useNodesInitialized ──────────────────────────────────────────
+// Returns true when all nodes have been rendered at least once
+export function useNodesInitialized(options = {}) {
+  const store = useCanvasStore();
+  // In canvas-based rendering, nodes are "initialized" as soon as they're synced to worker
+  return store.nodes.length > 0;
+}
+
+// ── useInternalNode ──────────────────────────────────────────────
+// Access internal node data (with position)
+export function useInternalNode(nodeId) {
+  const store = useCanvasStore();
+  return useMemo(() => {
+    return store.nodes.find((n) => n.id === nodeId) || undefined;
+  }, [store.nodes, nodeId]);
+}
+
+// ── useStore ─────────────────────────────────────────────────────
+// Direct access to the canvas store (selector pattern like Zustand)
+export function useStore(selector) {
+  const store = useCanvasStore();
+  if (typeof selector === 'function') {
+    return selector(store);
+  }
+  return store;
+}
+
+// ── useStoreApi ──────────────────────────────────────────────────
+// Returns an object with getState() for imperative store access
+export function useStoreApi() {
+  const store = useCanvasStore();
+  return useMemo(() => ({
+    getState: () => store,
+    setState: () => {
+      console.warn('[infinite-canvas] setState on storeApi is not supported. Use onNodesChange/onEdgesChange instead.');
+    },
+  }), [store]);
+}
+
+// ── useNodeId ────────────────────────────────────────────────────
+// In React Flow, this returns the current node ID inside a custom node component.
+// Since we use canvas rendering (not DOM nodes), this is a stub that returns null.
+// It's provided for API compatibility.
+export function useNodeId() {
+  return null;
+}
