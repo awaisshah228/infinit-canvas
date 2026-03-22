@@ -234,6 +234,8 @@ export default function useInfiniteCanvas({
   const resolvedNodesRef = useRef([]);
   const edgeRouterRef = useRef(null);
   const routeReqIdRef = useRef(0);
+  const routeDebounceRef = useRef(null);
+  const lastRoutedPositionsRef = useRef('');
 
   // Send edges to the edge router worker for off-thread routing.
   // The worker posts back routed edges which we forward to the canvas worker.
@@ -282,16 +284,47 @@ export default function useInfiniteCanvas({
     const resolved = resolveAbsolutePositions(nodes);
     resolvedNodesRef.current = resolved;
     workerRef.current?.postMessage({ type: 'nodes', data: { nodes: resolved } });
-    // Re-route edges when nodes change (positions moved)
+    // Re-route edges only when node positions/dimensions actually changed
+    // (skip rerouting for selection-only or data-only changes)
     if (edgeRouting && edgesRef.current.length > 0) {
-      routeEdgesInWorker(resolved, edgesRef.current);
+      // Build a lightweight fingerprint of positions + dimensions
+      let posKey = '';
+      for (let i = 0; i < resolved.length; i++) {
+        const n = resolved[i];
+        const p = n._absolutePosition || n.position;
+        posKey += n.id + ':' + p.x + ',' + p.y + ',' + (n.width || 0) + ',' + (n.height || 0) + ';';
+      }
+      if (posKey !== lastRoutedPositionsRef.current) {
+        lastRoutedPositionsRef.current = posKey;
+        // Debounce routing to avoid flooding the worker during rapid drags
+        if (routeDebounceRef.current) clearTimeout(routeDebounceRef.current);
+        routeDebounceRef.current = setTimeout(() => {
+          routeEdgesInWorker(resolvedNodesRef.current, edgesRef.current);
+        }, 16);
+      }
     }
   }, [nodes, resolveAbsolutePositions, edgeRouting, routeEdgesInWorker]);
 
+  const lastRoutedEdgeKeyRef = useRef('');
   useEffect(() => {
     edgesRef.current = [...edges];
     if (edgeRouting && resolvedNodesRef.current.length > 0) {
-      routeEdgesInWorker(resolvedNodesRef.current, edges);
+      // Build fingerprint of edge connections (skip re-routing for selection-only changes)
+      let edgeKey = '';
+      for (let i = 0; i < edges.length; i++) {
+        const e = edges[i];
+        edgeKey += e.id + ':' + e.source + '>' + e.target + ';';
+      }
+      if (edgeKey !== lastRoutedEdgeKeyRef.current) {
+        lastRoutedEdgeKeyRef.current = edgeKey;
+        if (routeDebounceRef.current) clearTimeout(routeDebounceRef.current);
+        routeDebounceRef.current = setTimeout(() => {
+          routeEdgesInWorker(resolvedNodesRef.current, edgesRef.current);
+        }, 16);
+      } else {
+        // Edges changed (e.g. selection) but connections are the same — just forward to canvas worker
+        workerRef.current?.postMessage({ type: 'edges', data: { edges: [...edges] } });
+      }
     } else {
       workerRef.current?.postMessage({ type: 'edges', data: { edges: [...edges] } });
     }
@@ -758,22 +791,40 @@ export default function useInfiniteCanvas({
       const dx = world.x - drag.startMouse.x;
       const dy = world.y - drag.startMouse.y;
 
-      if (onNodesChangeRef.current) {
-        let pos = { x: drag.startPos.x + dx, y: drag.startPos.y + dy };
-        if (snapToGrid) pos = snapPos(pos, snapGrid);
-        if (nodeExtent) pos = clampPosition(pos, nodeExtent);
+      let pos = { x: drag.startPos.x + dx, y: drag.startPos.y + dy };
+      if (snapToGrid) pos = snapPos(pos, snapGrid);
+      if (nodeExtent) pos = clampPosition(pos, nodeExtent);
 
-        const changes = [
-          { id: drag.id, type: 'position', position: pos, dragging: true },
-        ];
-        for (const s of drag.selectedStarts) {
-          let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
-          if (snapToGrid) sPos = snapPos(sPos, snapGrid);
-          if (nodeExtent) sPos = clampPosition(sPos, nodeExtent);
-          changes.push({ id: s.id, type: 'position', position: sPos, dragging: true });
-        }
-        onNodesChangeRef.current(changes);
+      // Build position updates for dragged nodes
+      const posUpdates = [{ id: drag.id, position: pos }];
+      for (const s of drag.selectedStarts) {
+        let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
+        if (snapToGrid) sPos = snapPos(sPos, snapGrid);
+        if (nodeExtent) sPos = clampPosition(sPos, nodeExtent);
+        posUpdates.push({ id: s.id, position: sPos });
       }
+
+      // Update nodesRef in-place (no React state update — avoids 5000-node reconciliation)
+      const workerUpdates = [];
+      for (const u of posUpdates) {
+        const n = nodesRef.current.find(nd => nd.id === u.id);
+        if (n) {
+          n.position = u.position;
+          n.dragging = true;
+          workerUpdates.push({
+            id: u.id,
+            position: u.position,
+            _absolutePosition: u.position,
+            width: n.width,
+            height: n.height,
+            dragging: true,
+            selected: n.selected,
+          });
+        }
+      }
+
+      // Send only changed positions to canvas worker
+      workerRef.current?.postMessage({ type: 'nodePositions', data: { updates: workerUpdates } });
 
       // Auto-pan when dragging near canvas edge
       if (autoPanOnNodeDrag) {
@@ -856,14 +907,27 @@ export default function useInfiniteCanvas({
       return;
     }
 
-    // Node drag end
+    // Node drag end — commit final positions to React state
     if (dragNodeRef.current) {
       const drag = dragNodeRef.current;
       dragNodeRef.current = null;
       if (onNodesChangeRef.current) {
-        const changes = [{ id: drag.id, type: 'position', dragging: false }];
+        // Send final positions from nodesRef (updated in-place during drag)
+        const dragNode = nodesRef.current.find(n => n.id === drag.id);
+        const changes = [{
+          id: drag.id,
+          type: 'position',
+          position: dragNode ? { ...dragNode.position } : undefined,
+          dragging: false,
+        }];
         for (const s of drag.selectedStarts) {
-          changes.push({ id: s.id, type: 'position', dragging: false });
+          const sn = nodesRef.current.find(n => n.id === s.id);
+          changes.push({
+            id: s.id,
+            type: 'position',
+            position: sn ? { ...sn.position } : undefined,
+            dragging: false,
+          });
         }
         onNodesChangeRef.current(changes);
       }

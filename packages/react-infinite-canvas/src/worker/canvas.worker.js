@@ -35,12 +35,7 @@ function getNodePos(node) {
 }
 
 // Handle position helpers
-// Resolves a handle definition to absolute world {x, y}
-// handle: { type, position?, x?, y?, id? }
-// position: 'top' | 'bottom' | 'left' | 'right' (default: source='right', target='left')
-// x, y: custom offset relative to node top-left (overrides position)
 function resolveHandlePos(handle, nodeX, nodeY, nw, nh) {
-  // Custom x,y offset takes priority
   if (handle.x !== undefined && handle.y !== undefined) {
     return { x: nodeX + handle.x, y: nodeY + handle.y };
   }
@@ -64,26 +59,39 @@ function getNodeHandles(node) {
       return { id: h.id || null, type: h.type, x: pos.x, y: pos.y, position: h.position };
     });
   }
-  // Default handles: source on right, target on left
   return [
     { id: null, type: 'target', x: getNodePos(node).x, y: getNodePos(node).y + nh / 2, position: 'left' },
     { id: null, type: 'source', x: getNodePos(node).x + nw, y: getNodePos(node).y + nh / 2, position: 'right' },
   ];
 }
 
-// Find the handle on a node that matches edge source/target + handleId
+// Handle cache: avoids recomputing handles for the same node multiple times per frame
+var handleCache = {};
+var handleCacheDirty = true;
+
+function getCachedHandles(node) {
+  if (handleCacheDirty) {
+    handleCache = {};
+    handleCacheDirty = false;
+  }
+  var cached = handleCache[node.id];
+  if (cached) return cached;
+  cached = getNodeHandles(node);
+  handleCache[node.id] = cached;
+  return cached;
+}
+
 function findEdgeHandle(node, handleType, handleId) {
-  var handles = getNodeHandles(node);
+  var handles = getCachedHandles(node);
   for (var i = 0; i < handles.length; i++) {
     if (handles[i].type === handleType) {
       if (handleId) {
         if (handles[i].id === handleId) return handles[i];
       } else {
-        return handles[i]; // Return first matching type
+        return handles[i];
       }
     }
   }
-  // Fallback: default position
   var nw = node.width || DEFAULT_NODE_WIDTH;
   var nh = node.height || DEFAULT_NODE_HEIGHT;
   if (handleType === 'source') {
@@ -104,22 +112,19 @@ function updateColors() {
     titleText: 'rgba(255,255,255,0.9)',
     bodyText: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)',
     coordText: dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
-    // Node colors
     nodeBg: dark ? '#1e1e2e' : '#ffffff',
     nodeBorder: dark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)',
     nodeSelectedBorder: '#3b82f6',
     nodeShadow: dark ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.08)',
     nodeText: dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.85)',
-    // Edge colors
     edgeStroke: dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)',
     edgeSelected: '#3b82f6',
     edgeAnimated: '#3b82f6',
-    // Handle colors
     handleFill: '#ffffff',
     handleBorder: '#3b82f6',
-    // Connection line
     connectionLine: '#3b82f6',
   };
+  gridCacheDirty = true;
 }
 updateColors();
 
@@ -131,7 +136,7 @@ var FONT_COORD = '10px monospace';
 var FONT_NODE = '500 13px system-ui, sans-serif';
 var FONT_EDGE_LABEL = '400 11px system-ui, sans-serif';
 
-// ── Spatial grid for O(1) frustum culling ───────────────────────
+// ── Spatial grid for O(1) frustum culling (cards) ───────────────
 var CELL_SIZE = 400;
 var spatialGrid = {};
 var gridDirty = true;
@@ -180,6 +185,59 @@ function getVisibleCardIndices(wl, wt, wr, wb) {
   return result;
 }
 
+// ── Spatial grid for nodes (O(visible) frustum culling) ─────────
+var NODE_CELL_SIZE = 500;
+var nodeSpatialGrid = {};
+var nodeSpatialDirty = true;
+
+function rebuildNodeSpatialGrid() {
+  nodeSpatialGrid = {};
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    if (n.hidden) continue;
+    var pos = getNodePos(n);
+    var nw = n.width || DEFAULT_NODE_WIDTH;
+    var nh = n.height || DEFAULT_NODE_HEIGHT;
+    var minCX = Math.floor(pos.x / NODE_CELL_SIZE);
+    var minCY = Math.floor(pos.y / NODE_CELL_SIZE);
+    var maxCX = Math.floor((pos.x + nw) / NODE_CELL_SIZE);
+    var maxCY = Math.floor((pos.y + nh) / NODE_CELL_SIZE);
+    for (var cx = minCX; cx <= maxCX; cx++) {
+      for (var cy = minCY; cy <= maxCY; cy++) {
+        var key = cx + ',' + cy;
+        if (!nodeSpatialGrid[key]) nodeSpatialGrid[key] = [];
+        nodeSpatialGrid[key].push(i);
+      }
+    }
+  }
+  nodeSpatialDirty = false;
+}
+
+function getVisibleNodeIndices(wl, wt, wr, wb) {
+  if (nodeSpatialDirty) rebuildNodeSpatialGrid();
+  var seen = {};
+  var result = [];
+  var minCX = Math.floor(wl / NODE_CELL_SIZE);
+  var minCY = Math.floor(wt / NODE_CELL_SIZE);
+  var maxCX = Math.floor(wr / NODE_CELL_SIZE);
+  var maxCY = Math.floor(wb / NODE_CELL_SIZE);
+  for (var cx = minCX; cx <= maxCX; cx++) {
+    for (var cy = minCY; cy <= maxCY; cy++) {
+      var key = cx + ',' + cy;
+      var bucket = nodeSpatialGrid[key];
+      if (!bucket) continue;
+      for (var j = 0; j < bucket.length; j++) {
+        var idx = bucket[j];
+        if (!seen[idx]) {
+          seen[idx] = true;
+          result.push(idx);
+        }
+      }
+    }
+  }
+  return result;
+}
+
 // ── Node lookup for edge rendering ────────────────────────────
 var nodeLookup = {};
 var nodeLookupDirty = true;
@@ -195,6 +253,85 @@ function rebuildNodeLookup() {
 function getNodeById(id) {
   if (nodeLookupDirty) rebuildNodeLookup();
   return nodeLookup[id];
+}
+
+// ── Edge adjacency index (maps nodeId → array of edge indices) ──
+var edgeAdjacency = {};
+var edgeAdjacencyDirty = true;
+
+function rebuildEdgeAdjacency() {
+  edgeAdjacency = {};
+  for (var i = 0; i < edges.length; i++) {
+    var e = edges[i];
+    if (!edgeAdjacency[e.source]) edgeAdjacency[e.source] = [];
+    edgeAdjacency[e.source].push(i);
+    if (e.source !== e.target) {
+      if (!edgeAdjacency[e.target]) edgeAdjacency[e.target] = [];
+      edgeAdjacency[e.target].push(i);
+    }
+  }
+  edgeAdjacencyDirty = false;
+}
+
+// ── Grid/background cache (offscreen canvas) ─────────────────────
+var gridCache = null;
+var gridCacheW = 0;
+var gridCacheH = 0;
+var gridCacheStep = 0;
+var gridCacheVariant = '';
+var gridCacheDirty = true;
+
+function renderGridToCache(step) {
+  if (!gridCache) {
+    gridCache = new OffscreenCanvas(1, 1);
+  }
+  // Create a tile that covers one grid period in both directions
+  // We'll tile it across the viewport
+  var tileW = Math.ceil(step);
+  var tileH = Math.ceil(step);
+  if (tileW < 2 || tileH < 2) return false;
+  // Cap tile size to avoid huge allocations
+  if (tileW > 512) tileW = 512;
+  if (tileH > 512) tileH = 512;
+  gridCache.width = tileW;
+  gridCache.height = tileH;
+  gridCacheW = tileW;
+  gridCacheH = tileH;
+  gridCacheStep = step;
+  gridCacheVariant = bgVariant;
+  gridCacheDirty = false;
+
+  var gctx = gridCache.getContext('2d');
+  gctx.clearRect(0, 0, tileW, tileH);
+  var gridColor = bgColor || COLORS.grid;
+
+  if (bgVariant === 'dots') {
+    gctx.fillStyle = gridColor;
+    var dotR = bgSize * camera.zoom;
+    gctx.beginPath();
+    gctx.arc(0, 0, dotR, 0, 6.2832);
+    gctx.fill();
+  } else if (bgVariant === 'cross') {
+    gctx.strokeStyle = gridColor;
+    gctx.lineWidth = bgSize;
+    var crossSize = 3 * camera.zoom;
+    gctx.beginPath();
+    gctx.moveTo(-crossSize, 0);
+    gctx.lineTo(crossSize, 0);
+    gctx.moveTo(0, -crossSize);
+    gctx.lineTo(0, crossSize);
+    gctx.stroke();
+  } else {
+    gctx.beginPath();
+    gctx.strokeStyle = gridColor;
+    gctx.lineWidth = bgSize * 0.5;
+    gctx.moveTo(0.5, 0);
+    gctx.lineTo(0.5, tileH);
+    gctx.moveTo(0, 0.5);
+    gctx.lineTo(tileW, 0.5);
+    gctx.stroke();
+  }
+  return true;
 }
 
 // ── FPS tracking ────────────────────────────────────────────────
@@ -232,6 +369,9 @@ self.onmessage = function(e) {
         updateColors();
         gridDirty = true;
         nodeLookupDirty = true;
+        nodeSpatialDirty = true;
+        handleCacheDirty = true;
+        edgeAdjacencyDirty = true;
         hasAnimatedEdges = edges.some(function(edge) { return edge.animated; });
         console.log('[worker] init done — canvas:', W, 'x', H, '| cards:', cards.length, '| nodes:', nodes.length, '| edges:', edges.length);
         render();
@@ -244,11 +384,13 @@ self.onmessage = function(e) {
         H = data.height;
         canvas.width = W;
         canvas.height = H;
+        gridCacheDirty = true;
         render();
         break;
 
       case 'camera':
         camera = data.camera;
+        gridCacheDirty = true; // zoom changed = grid tile size changed
         scheduleRender();
         break;
 
@@ -261,12 +403,37 @@ self.onmessage = function(e) {
       case 'nodes':
         nodes = data.nodes;
         nodeLookupDirty = true;
+        nodeSpatialDirty = true;
+        handleCacheDirty = true;
         scheduleRender();
         self.postMessage({ type: 'nodesProcessed', data: { nodeCount: nodes.length } });
         break;
 
+      case 'nodePositions':
+        // Lightweight update: only patch positions of changed nodes (used during drag)
+        if (nodeLookupDirty) rebuildNodeLookup();
+        var updates = data.updates; // [{ id, position, _absolutePosition?, width?, height? }]
+        for (var ui = 0; ui < updates.length; ui++) {
+          var u = updates[ui];
+          var existing = nodeLookup[u.id];
+          if (existing) {
+            existing.position = u.position;
+            if (u._absolutePosition) existing._absolutePosition = u._absolutePosition;
+            if (u.width !== undefined) existing.width = u.width;
+            if (u.height !== undefined) existing.height = u.height;
+            existing.dragging = u.dragging;
+            existing.selected = u.selected;
+          }
+        }
+        // Only invalidate handle cache (positions changed) — spatial grid rebuild is deferred
+        handleCacheDirty = true;
+        nodeSpatialDirty = true;
+        scheduleRender();
+        break;
+
       case 'edges':
         edges = data.edges;
+        edgeAdjacencyDirty = true;
         hasAnimatedEdges = edges.some(function(edge) { return edge.animated; });
         if (hasAnimatedEdges) startAnimationLoop();
         scheduleRender();
@@ -293,6 +460,7 @@ self.onmessage = function(e) {
         if (data.gap) gridSize = data.gap;
         if (data.size) bgSize = data.size;
         bgColor = data.color || null;
+        gridCacheDirty = true;
         scheduleRender();
         break;
     }
@@ -349,9 +517,6 @@ function drawRoutedPath(path, points) {
   path.lineTo(points[points.length - 1].x, points[points.length - 1].y);
 }
 
-// Draw a smooth cubic spline through routed waypoints (for bezier-type edges).
-// Uses Catmull-Rom → cubic Bezier conversion so the curve passes through
-// every waypoint while staying smooth.
 function drawRoutedCurve(path, points) {
   if (points.length < 2) return;
   path.moveTo(points[0].x, points[0].y);
@@ -360,11 +525,9 @@ function drawRoutedCurve(path, points) {
     return;
   }
   if (points.length === 3) {
-    // Single quadratic through the middle point
     path.quadraticCurveTo(points[1].x, points[1].y, points[2].x, points[2].y);
     return;
   }
-  // Catmull-Rom with tension 0 → cubic Bezier, passing through all points
   var tension = 0.3;
   for (var i = 0; i < points.length - 1; i++) {
     var p0 = points[i === 0 ? 0 : i - 1];
@@ -412,7 +575,6 @@ function getBezierPath(sx, sy, tx, ty) {
 
 function getBezierMidpoint(sx, sy, tx, ty) {
   var bp = getBezierPath(sx, sy, tx, ty);
-  // Cubic bezier at t=0.5
   var t = 0.5;
   var mt = 1 - t;
   var x = mt*mt*mt*sx + 3*mt*mt*t*bp.cp1x + 3*mt*t*t*bp.cp2x + t*t*t*tx;
@@ -426,55 +588,76 @@ function render() {
 
   ctx.clearRect(0, 0, W, H);
 
-  // ── Grid / Background ──────────────────────────────────────────
+  // ── Grid / Background (cached tile) ─────────────────────────────
   var step = gridSize * camera.zoom;
-  var gridColor = bgColor || COLORS.grid;
   if (step > 2) {
-    var sx = ((camera.x % step) + step) % step;
-    var sy = ((camera.y % step) + step) % step;
-
-    if (bgVariant === 'dots') {
-      ctx.fillStyle = gridColor;
-      var dotR = bgSize * camera.zoom;
-      for (var dx = sx; dx < W; dx += step) {
-        for (var dy = sy; dy < H; dy += step) {
-          ctx.beginPath();
-          ctx.arc(Math.round(dx), Math.round(dy), dotR, 0, 6.2832);
-          ctx.fill();
-        }
+    // For lines variant, use cached offscreen tile for performance
+    if (bgVariant === 'lines' && step >= 4 && step <= 512) {
+      if (gridCacheDirty || gridCacheStep !== step || gridCacheVariant !== bgVariant) {
+        renderGridToCache(step);
       }
-    } else if (bgVariant === 'cross') {
-      ctx.strokeStyle = gridColor;
-      ctx.lineWidth = bgSize;
-      var crossSize = 3 * camera.zoom;
-      ctx.beginPath();
-      for (var cx = sx; cx < W; cx += step) {
-        for (var cy = sy; cy < H; cy += step) {
-          var rx = Math.round(cx);
-          var ry = Math.round(cy);
-          ctx.moveTo(rx - crossSize, ry);
-          ctx.lineTo(rx + crossSize, ry);
-          ctx.moveTo(rx, ry - crossSize);
-          ctx.lineTo(rx, ry + crossSize);
+      if (gridCache && gridCacheW > 0) {
+        var ox = ((camera.x % step) + step) % step;
+        var oy = ((camera.y % step) + step) % step;
+        ctx.save();
+        ctx.translate(ox, oy);
+        var pat = ctx.createPattern(gridCache, 'repeat');
+        if (pat) {
+          ctx.fillStyle = pat;
+          ctx.fillRect(-ox, -oy, W, H);
         }
+        ctx.restore();
       }
-      ctx.stroke();
     } else {
-      // Default: lines
-      ctx.beginPath();
-      ctx.strokeStyle = gridColor;
-      ctx.lineWidth = bgSize * 0.5;
-      for (var gx = sx; gx < W; gx += step) {
-        var snx = Math.round(gx) + 0.5;
-        ctx.moveTo(snx, 0);
-        ctx.lineTo(snx, H);
+      // Fallback: direct draw for dots/cross or edge-case step sizes
+      var sx = ((camera.x % step) + step) % step;
+      var sy = ((camera.y % step) + step) % step;
+      var gridColor = bgColor || COLORS.grid;
+
+      if (bgVariant === 'dots') {
+        ctx.fillStyle = gridColor;
+        var dotR = bgSize * camera.zoom;
+        for (var dx = sx; dx < W; dx += step) {
+          for (var dy = sy; dy < H; dy += step) {
+            ctx.beginPath();
+            ctx.arc(Math.round(dx), Math.round(dy), dotR, 0, 6.2832);
+            ctx.fill();
+          }
+        }
+      } else if (bgVariant === 'cross') {
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = bgSize;
+        var crossSize = 3 * camera.zoom;
+        ctx.beginPath();
+        for (var cx2 = sx; cx2 < W; cx2 += step) {
+          for (var cy2 = sy; cy2 < H; cy2 += step) {
+            var rx = Math.round(cx2);
+            var ry = Math.round(cy2);
+            ctx.moveTo(rx - crossSize, ry);
+            ctx.lineTo(rx + crossSize, ry);
+            ctx.moveTo(rx, ry - crossSize);
+            ctx.lineTo(rx, ry + crossSize);
+          }
+        }
+        ctx.stroke();
+      } else {
+        // Lines fallback for very small/large steps
+        var gridColor2 = bgColor || COLORS.grid;
+        ctx.beginPath();
+        ctx.strokeStyle = gridColor2;
+        ctx.lineWidth = bgSize * 0.5;
+        for (var gx = sx; gx < W; gx += step) {
+          var snx = Math.round(gx) + 0.5;
+          ctx.moveTo(snx, 0);
+          ctx.lineTo(snx, H);
+        }
+        for (var gy = sy; gy < H; gy += step) {
+          var sny = Math.round(gy) + 0.5;
+          ctx.moveTo(0, sny);
+          ctx.lineTo(W, sny);
+        }
+        ctx.stroke();
       }
-      for (var gy = sy; gy < H; gy += step) {
-        var sny = Math.round(gy) + 0.5;
-        ctx.moveTo(0, sny);
-        ctx.lineTo(W, sny);
-      }
-      ctx.stroke();
     }
   }
 
@@ -489,11 +672,16 @@ function render() {
   ctx.translate(camera.x, camera.y);
   ctx.scale(camera.zoom, camera.zoom);
 
-  // ── Frustum bounds ────────────────────────────────────────────
+  // ── Frustum bounds (with padding for edges that extend beyond nodes) ──
+  var edgePadding = 100; // extra world-space padding so edges near viewport aren't clipped
   var worldLeft = -camera.x / camera.zoom;
   var worldTop = -camera.y / camera.zoom;
   var worldRight = worldLeft + W / camera.zoom;
   var worldBottom = worldTop + H / camera.zoom;
+  var paddedLeft = worldLeft - edgePadding;
+  var paddedTop = worldTop - edgePadding;
+  var paddedRight = worldRight + edgePadding;
+  var paddedBottom = worldBottom + edgePadding;
 
   // ── Render cards (legacy) ─────────────────────────────────────
   if (cards.length > 0) {
@@ -581,30 +769,42 @@ function render() {
     }
   }
 
-  // ── Collect visible nodes (frustum culling) ────────────────────
+  // ── Collect visible nodes (spatial grid culling) ────────────────
   var visibleNodes = [];
-  var visibleNodeSet = null; // Set of visible node IDs for edge culling
+  var visibleNodeSet = null;
   if (nodes.length > 0) {
     visibleNodeSet = {};
-    for (var vni = 0; vni < nodes.length; vni++) {
-      var vn = nodes[vni];
-      if (vn.hidden) continue;
-      var vnw = vn.width || DEFAULT_NODE_WIDTH;
-      var vnh = vn.height || DEFAULT_NODE_HEIGHT;
-      if (getNodePos(vn).x + vnw < worldLeft || getNodePos(vn).x > worldRight ||
-          getNodePos(vn).y + vnh < worldTop || getNodePos(vn).y > worldBottom) continue;
-      // Custom-rendered nodes are visible (for edge culling) but not canvas-drawn
-      visibleNodeSet[vn.id] = true;
-      if (!vn._customRendered) {
-        visibleNodes.push(vn);
+    // Use spatial grid for fast culling when we have many nodes
+    if (nodes.length > 100) {
+      var visIndices = getVisibleNodeIndices(paddedLeft, paddedTop, paddedRight, paddedBottom);
+      for (var vii = 0; vii < visIndices.length; vii++) {
+        var vn = nodes[visIndices[vii]];
+        visibleNodeSet[vn.id] = true;
+        if (!vn._customRendered) {
+          visibleNodes.push(vn);
+        }
+      }
+    } else {
+      // Linear scan for small node counts (avoids grid rebuild overhead)
+      for (var vni = 0; vni < nodes.length; vni++) {
+        var vn2 = nodes[vni];
+        if (vn2.hidden) continue;
+        var vnw = vn2.width || DEFAULT_NODE_WIDTH;
+        var vnh = vn2.height || DEFAULT_NODE_HEIGHT;
+        if (getNodePos(vn2).x + vnw < paddedLeft || getNodePos(vn2).x > paddedRight ||
+            getNodePos(vn2).y + vnh < paddedTop || getNodePos(vn2).y > paddedBottom) continue;
+        visibleNodeSet[vn2.id] = true;
+        if (!vn2._customRendered) {
+          visibleNodes.push(vn2);
+        }
       }
     }
   }
   var visNodeCount = visibleNodes.length;
 
-  // ── Render edges (batched, with frustum culling) ──────────────
+  // ── Render edges (batched, with frustum culling via adjacency) ──
   if (edges.length > 0 && nodes.length > 0) {
-    // Batch edges by style: normal, selected, animated
+    if (edgeAdjacencyDirty) rebuildEdgeAdjacency();
     var normalPath = null;
     var selectedPath = null;
     var animatedPath = null;
@@ -613,17 +813,39 @@ function render() {
     var animatedArrows = [];
     var edgeLabels = [];
 
-    for (var ei = 0; ei < edges.length; ei++) {
-      var edge = edges[ei];
+    // At very low zoom, skip edge labels and arrows for performance
+    var showEdgeLabels = camera.zoom > 0.3;
+    var showEdgeArrows = camera.zoom > 0.05;
+
+    // Collect edge indices connected to visible nodes (avoid iterating all edges)
+    var edgeIndices;
+    if (visibleNodeSet && nodes.length > 100) {
+      var seenEdge = {};
+      edgeIndices = [];
+      for (var vid in visibleNodeSet) {
+        var adj = edgeAdjacency[vid];
+        if (!adj) continue;
+        for (var ai = 0; ai < adj.length; ai++) {
+          var idx = adj[ai];
+          if (!seenEdge[idx]) {
+            seenEdge[idx] = true;
+            edgeIndices.push(idx);
+          }
+        }
+      }
+    } else {
+      // Small graph: iterate all edges
+      edgeIndices = [];
+      for (var allEi = 0; allEi < edges.length; allEi++) edgeIndices.push(allEi);
+    }
+
+    for (var eii = 0; eii < edgeIndices.length; eii++) {
+      var edge = edges[edgeIndices[eii]];
       var srcNode = getNodeById(edge.source);
       var tgtNode = getNodeById(edge.target);
       if (!srcNode || !tgtNode) continue;
       if (srcNode.hidden || tgtNode.hidden) continue;
-      // Skip edges rendered by custom React components
       if (edge._customRendered) continue;
-
-      // Frustum cull: skip edges where BOTH nodes are off-screen
-      if (visibleNodeSet && !visibleNodeSet[edge.source] && !visibleNodeSet[edge.target]) continue;
 
       var srcHandle = findEdgeHandle(srcNode, 'source', edge.sourceHandle);
       var tgtHandle = findEdgeHandle(tgtNode, 'target', edge.targetHandle);
@@ -634,7 +856,6 @@ function render() {
       var isSelected = edge.selected;
       var isAnimated = edge.animated;
 
-      // Pick the right batch path
       var path;
       if (isSelected) {
         if (!selectedPath) selectedPath = new Path2D();
@@ -647,7 +868,6 @@ function render() {
         path = normalPath;
       }
 
-      // Add edge shape to path — use routed points if available
       var rp = edge._routedPoints;
       if (rp && rp.length >= 2) {
         if (edgeType === 'step' || edgeType === 'smoothstep' || edgeType === 'straight') {
@@ -679,28 +899,30 @@ function render() {
         path.bezierCurveTo(bp.cp1x, bp.cp1y, bp.cp2x, bp.cp2y, ex2, ey2);
       }
 
-      // Collect arrow data
-      var arrowSize = 8;
-      var angle;
-      if (rp && rp.length >= 2) {
-        var last = rp[rp.length - 1], prev = rp[rp.length - 2];
-        angle = Math.atan2(last.y - prev.y, last.x - prev.x);
-      } else if (edgeType === 'straight') {
-        angle = Math.atan2(ey2 - ey1, ex2 - ex1);
-      } else if (edgeType === 'step' || edgeType === 'smoothstep') {
-        angle = 0;
-      } else {
-        var bpa = getBezierPath(ex1, ey1, ex2, ey2);
-        angle = Math.atan2(ey2 - bpa.cp2y, ex2 - bpa.cp2x);
+      // Arrows (skip at very low zoom — sub-pixel)
+      if (showEdgeArrows) {
+        var arrowSize = 8;
+        var angle;
+        if (rp && rp.length >= 2) {
+          var last = rp[rp.length - 1], prev = rp[rp.length - 2];
+          angle = Math.atan2(last.y - prev.y, last.x - prev.x);
+        } else if (edgeType === 'straight') {
+          angle = Math.atan2(ey2 - ey1, ex2 - ex1);
+        } else if (edgeType === 'step' || edgeType === 'smoothstep') {
+          angle = 0;
+        } else {
+          var bpa = getBezierPath(ex1, ey1, ex2, ey2);
+          angle = Math.atan2(ey2 - bpa.cp2y, ex2 - bpa.cp2x);
+        }
+        var arrowTip = (rp && rp.length >= 2) ? rp[rp.length - 1] : { x: ex2, y: ey2 };
+        var arrowData = { x: arrowTip.x, y: arrowTip.y, angle: angle, size: arrowSize };
+        if (isSelected) selectedArrows.push(arrowData);
+        else if (isAnimated) animatedArrows.push(arrowData);
+        else normalArrows.push(arrowData);
       }
-      var arrowTip = (rp && rp.length >= 2) ? rp[rp.length - 1] : { x: ex2, y: ey2 };
-      var arrowData = { x: arrowTip.x, y: arrowTip.y, angle: angle, size: arrowSize };
-      if (isSelected) selectedArrows.push(arrowData);
-      else if (isAnimated) animatedArrows.push(arrowData);
-      else normalArrows.push(arrowData);
 
-      // Collect labels
-      if (edge.label && camera.zoom > 0.3) {
+      // Labels
+      if (showEdgeLabels && edge.label) {
         var labelPos;
         if (rp && rp.length >= 2) {
           labelPos = getRoutedMidpoint(rp);
@@ -713,7 +935,7 @@ function render() {
       }
     }
 
-    // Draw normal edges (single stroke call)
+    // Draw normal edges
     if (normalPath) {
       ctx.strokeStyle = COLORS.edgeStroke;
       ctx.lineWidth = 1.5;
@@ -814,7 +1036,8 @@ function render() {
 
   // ── Render nodes (batched like cards) ─────────────────────────
   if (visNodeCount > 0) {
-    var showNodeText = camera.zoom > 0.12;
+    // Adaptive LOD thresholds based on visible node count
+    var showNodeText = camera.zoom > 0.12 && (camera.zoom > 0.25 || visNodeCount < 500);
     var showShadowN = camera.zoom > 0.08 && visNodeCount < 200;
     var showHandles = camera.zoom > 0.2 && visNodeCount < 300;
 
@@ -870,7 +1093,7 @@ function render() {
     }
     if (hasSelected) ctx.stroke();
 
-    // PASS 4: Text (batched)
+    // PASS 4: Text (batched) — skip when nodes are tiny on screen
     if (showNodeText) {
       ctx.fillStyle = COLORS.nodeText;
       ctx.font = FONT_NODE;
@@ -880,8 +1103,8 @@ function render() {
         var nt = visibleNodes[nti];
         if (!nt.data || !nt.data.label) continue;
         var ntw = nt.width || DEFAULT_NODE_WIDTH;
-        var nth = nt.height || DEFAULT_NODE_HEIGHT;
-        ctx.fillText(nt.data.label, getNodePos(nt).x + ntw / 2, getNodePos(nt).y + nth / 2, ntw - 24);
+        var nth2 = nt.height || DEFAULT_NODE_HEIGHT;
+        ctx.fillText(nt.data.label, getNodePos(nt).x + ntw / 2, getNodePos(nt).y + nth2 / 2, ntw - 24);
       }
       ctx.textAlign = 'start';
       ctx.textBaseline = 'alphabetic';
@@ -889,7 +1112,6 @@ function render() {
 
     // PASS 5: Handles (batched — fill all, then stroke all)
     if (showHandles) {
-      // Collect all handle positions
       var allHandleXYs = [];
       for (var nhi = 0; nhi < visNodeCount; nhi++) {
         var nodeHandles = getNodeHandles(visibleNodes[nhi]);
@@ -897,7 +1119,6 @@ function render() {
           allHandleXYs.push(nodeHandles[nhj]);
         }
       }
-      // Batch fill
       ctx.fillStyle = COLORS.handleFill;
       ctx.beginPath();
       for (var hfi = 0; hfi < allHandleXYs.length; hfi++) {
@@ -906,7 +1127,6 @@ function render() {
         ctx.arc(hf.x, hf.y, HANDLE_RADIUS, 0, 6.2832);
       }
       ctx.fill();
-      // Batch stroke
       ctx.strokeStyle = COLORS.handleBorder;
       ctx.lineWidth = 1.5;
       ctx.stroke();
