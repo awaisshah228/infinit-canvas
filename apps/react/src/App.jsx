@@ -125,7 +125,11 @@ function Nav({ current }) {
     { to: '/stress-flow', label: 'Stress (Nodes)', key: 'stress-flow' },
   ];
   return (
-    <nav style={{ display: 'flex', gap: 16, padding: '10px 20px', fontSize: 13 }}>
+    <nav style={{
+      display: 'flex', gap: 12, padding: '10px 12px', fontSize: 13,
+      overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+      whiteSpace: 'nowrap', scrollbarWidth: 'none',
+    }}>
       {links.map((l) => (
         <Link
           key={l.key}
@@ -134,6 +138,7 @@ function Nav({ current }) {
             color: current === l.key ? '#3b82f6' : '#888',
             fontWeight: current === l.key ? 600 : 400,
             textDecoration: 'none',
+            flexShrink: 0,
           }}
         >
           {l.label}
@@ -167,8 +172,8 @@ function FlowDemo() {
   return (
     <div className="app">
       <Nav current="flow" />
-      <p style={{ padding: '0 20px', margin: '0 0 12px', fontSize: 13, color: '#888' }}>
-        Drag nodes to move &middot; Drag from a <strong>handle</strong> (circle) to another to connect &middot; Click to select &middot; <kbd>Delete</kbd> to remove
+      <p style={{ padding: '0 12px', margin: '0 0 8px', fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+        Drag nodes to move &middot; Drag from a <strong>handle</strong> to connect &middot; Click to select &middot; <kbd>Delete</kbd> to remove
       </p>
       <InfiniteCanvas
         nodes={nodes}
@@ -176,18 +181,18 @@ function FlowDemo() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        height="500px"
+        height="clamp(300px, 60vh, 600px)"
         initialCamera={{ x: 100, y: 80, zoom: 1 }}
       >
         <Controls />
         <MiniMap />
         <Background variant="dots" />
       </InfiniteCanvas>
-      <div id="ic-controls" style={{ marginTop: 0 }}>
-        <button onClick={addNewNode} style={{ fontSize: 13, padding: '4px 12px', cursor: 'pointer' }}>
+      <div id="ic-controls" style={{ marginTop: 4, padding: '4px 0', flexWrap: 'wrap' }}>
+        <button onClick={addNewNode} style={{ fontSize: 13, padding: '8px 14px', cursor: 'pointer', borderRadius: 6, border: '0.5px solid #ccc', background: '#fff' }}>
           + Add Node
         </button>
-        <span style={{ fontSize: 12, color: '#888', marginLeft: 12 }}>
+        <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>
           {nodes.length} nodes &middot; {edges.length} edges
         </span>
       </div>
@@ -199,7 +204,7 @@ function CardsPage() {
   return (
     <div className="app">
       <Nav current="cards" />
-      <InfiniteCanvas cards={INITIAL_CARDS} height="420px" />
+      <InfiniteCanvas cards={INITIAL_CARDS} height="clamp(300px, 60vh, 600px)" />
       <div id="ic-controls">
         <span className="ic-hint-text">
           Try panning &amp; zooming — grid extends forever
@@ -222,10 +227,8 @@ function CustomNodesDemo() {
   return (
     <div className="app">
       <Nav current="custom" />
-      <p style={{ padding: '0 20px', margin: '0 0 12px', fontSize: 13, color: '#888' }}>
-        Custom React nodes (DOM) + custom SVG edges + canvas default nodes — all in one canvas.
-        The blue &amp; green nodes are React components. The orange dashed edge is a custom SVG edge.
-        The &quot;Default Node&quot; and solid edges render on canvas.
+      <p style={{ padding: '0 12px', margin: '0 0 8px', fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+        Custom React nodes + custom SVG edges + canvas defaults — all in one canvas.
       </p>
       <InfiniteCanvas
         nodes={nodes}
@@ -235,7 +238,7 @@ function CustomNodesDemo() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        height="500px"
+        height="clamp(300px, 60vh, 600px)"
         initialCamera={{ x: 80, y: 60, zoom: 1 }}
       >
         <Controls />

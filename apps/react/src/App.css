@@ -6,6 +6,12 @@ body {
   background: #fafafa;
   color: #1a1a1a;
   padding: 20px;
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+@media (max-width: 768px) {
+  body { padding: 8px; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -72,6 +78,12 @@ body {
   gap: 8px;
   align-items: center;
   margin: 10px 0 0;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  #ic-controls { gap: 6px; }
+  #ic-controls button { padding: 8px 12px; font-size: 13px; }
 }
 
 #ic-controls button {

@@ -117,8 +117,8 @@ export default function StressTestFlow() {
   const onHudUpdate = useCallback((data) => setHud(data), []);
 
   return (
-    <div style={{ padding: 20 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+    <div style={{ padding: 'max(8px, env(safe-area-inset-left, 8px))' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
         <button onClick={() => addMore(100)} style={btnStyle} disabled={loading}>+ Add 100</button>
         <span style={{ color: '#ccc' }}>|</span>
         <button onClick={() => handleSetCount(200)} style={btnStyle} disabled={loading}>200</button>
