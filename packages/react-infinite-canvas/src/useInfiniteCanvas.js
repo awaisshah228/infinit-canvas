@@ -413,11 +413,13 @@ export default function useInfiniteCanvas({
 
     const initNodes = resolveAbsolutePositions(nodesRef.current);
     resolvedNodesRef.current = initNodes;
+    // Inject any handle positions already measured (from useLayoutEffect in Handle)
+    const enrichedInitNodes = injectRegisteredHandles(initNodes);
 
     const { worker } = getOrCreateWorker(canvas, {
       width: rect.width, height: rect.height,
       camera: cameraRef.current, cards: cardsRef.current,
-      nodes: initNodes, edges: edgesRef.current,
+      nodes: enrichedInitNodes, edges: edgesRef.current,
       dark: resolvedDark, gridSize, edgeRouting,
     });
 
