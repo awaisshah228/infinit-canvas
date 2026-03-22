@@ -405,6 +405,7 @@ self.onmessage = function(e) {
         nodeSpatialDirty = true;
         handleCacheDirty = true;
         scheduleRender();
+        scheduleEdgeRouting();
         self.postMessage({ type: 'nodesProcessed', data: { nodeCount: nodes.length } });
         break;
 
@@ -427,6 +428,7 @@ self.onmessage = function(e) {
         handleCacheDirty = true;
         nodeSpatialDirty = true;
         scheduleRender();
+        scheduleEdgeRouting();
         break;
 
       case 'edges':
@@ -435,6 +437,7 @@ self.onmessage = function(e) {
         hasAnimatedEdges = edges.some(function(edge) { return edge.animated; });
         if (hasAnimatedEdges) startAnimationLoop();
         scheduleRender();
+        scheduleEdgeRouting();
         break;
 
       case 'theme':
@@ -578,6 +581,188 @@ function getBezierMidpoint(sx, sy, tx, ty) {
   var x = mt*mt*mt*sx + 3*mt*mt*t*bp.cp1x + 3*mt*t*t*bp.cp2x + t*t*t*tx;
   var y = mt*mt*mt*sy + 3*mt*mt*t*bp.cp1y + 3*mt*t*t*bp.cp2y + t*t*t*ty;
   return { x: x, y: y };
+}
+
+// ── Edge routing state ──────────────────────────────────────────
+var edgeRoutingDirty = false;
+var edgeRoutingScheduled = false;
+
+// ── Neighbor-aware edge routing helpers ──────────────────────────
+// Use spatial grid to find nodes near an edge's bounding box (excluding src/tgt)
+function getNearbyNodes(x1, y1, x2, y2, excludeIds) {
+  if (nodeSpatialDirty) rebuildNodeSpatialGrid();
+  var minX = Math.min(x1, x2) - 20;
+  var minY = Math.min(y1, y2) - 20;
+  var maxX = Math.max(x1, x2) + 20;
+  var maxY = Math.max(y1, y2) + 20;
+  var indices = getVisibleNodeIndices(minX, minY, maxX, maxY);
+  var result = [];
+  for (var i = 0; i < indices.length; i++) {
+    var n = nodes[indices[i]];
+    if (n.hidden || excludeIds[n.id]) continue;
+    result.push(n);
+  }
+  return result;
+}
+
+// Check if a horizontal segment (y=cy, from x=x1 to x=x2) crosses through any node
+function hSegCrossesNode(x1, x2, cy, nearby) {
+  var lx = Math.min(x1, x2), rx = Math.max(x1, x2);
+  for (var i = 0; i < nearby.length; i++) {
+    var n = nearby[i];
+    var np = getNodePos(n);
+    var nw = n.width || DEFAULT_NODE_WIDTH, nh = n.height || DEFAULT_NODE_HEIGHT;
+    if (cy > np.y && cy < np.y + nh && rx > np.x && lx < np.x + nw) return n;
+  }
+  return null;
+}
+
+// Check if a vertical segment (x=cx, from y=y1 to y=y2) crosses through any node
+function vSegCrossesNode(cx, y1, y2, nearby) {
+  var ty = Math.min(y1, y2), by = Math.max(y1, y2);
+  for (var i = 0; i < nearby.length; i++) {
+    var n = nearby[i];
+    var np = getNodePos(n);
+    var nw = n.width || DEFAULT_NODE_WIDTH, nh = n.height || DEFAULT_NODE_HEIGHT;
+    if (cx > np.x && cx < np.x + nw && by > np.y && ty < np.y + nh) return n;
+  }
+  return null;
+}
+
+// Async edge routing — runs after render, sets _routedPoints, triggers re-render
+function routeEdgesAsync() {
+  if (!edgeRoutingDirty || edges.length === 0 || nodes.length === 0) return;
+  edgeRoutingDirty = false;
+  if (nodeLookupDirty) rebuildNodeLookup();
+  if (nodeSpatialDirty) rebuildNodeSpatialGrid();
+
+  var OFS = 20;
+  var changed = false;
+
+  for (var ei = 0; ei < edges.length; ei++) {
+    var edge = edges[ei];
+    if (edge._customRendered) continue;
+    var edgeType = edge.type || 'default';
+    if (edgeType !== 'step' && edgeType !== 'smoothstep' && edgeType !== 'default') continue;
+
+    var sn = nodeLookup[edge.source];
+    var tn = nodeLookup[edge.target];
+    if (!sn || !tn || sn.hidden || tn.hidden) continue;
+
+    var sh = findEdgeHandle(sn, 'source', edge.sourceHandle);
+    var th = findEdgeHandle(tn, 'target', edge.targetHandle);
+    var srcHDir = sh.position || 'right';
+    var tgtHDir = th.position || 'left';
+
+    var ex1 = sh.x, ey1 = sh.y, ex2 = th.x, ey2 = th.y;
+    // Gapped points
+    var gx1 = ex1, gy1 = ey1, gx2 = ex2, gy2 = ey2;
+    if (srcHDir === 'right') gx1 += OFS;
+    else if (srcHDir === 'left') gx1 -= OFS;
+    else if (srcHDir === 'bottom') gy1 += OFS;
+    else if (srcHDir === 'top') gy1 -= OFS;
+    if (tgtHDir === 'right') gx2 += OFS;
+    else if (tgtHDir === 'left') gx2 -= OFS;
+    else if (tgtHDir === 'bottom') gy2 += OFS;
+    else if (tgtHDir === 'top') gy2 -= OFS;
+
+    var sp = getNodePos(sn), tp = getNodePos(tn);
+    var sw = sn.width || DEFAULT_NODE_WIDTH, shh = sn.height || DEFAULT_NODE_HEIGHT;
+    var tw = tn.width || DEFAULT_NODE_WIDTH, thh = tn.height || DEFAULT_NODE_HEIGHT;
+
+    // Find nearby nodes
+    var excl = {}; excl[edge.source] = true; excl[edge.target] = true;
+    var nearby = getNearbyNodes(
+      Math.min(ex1, ex2) - sw, Math.min(ey1, ey2) - shh,
+      Math.max(ex1, ex2) + tw, Math.max(ey1, ey2) + thh, excl
+    );
+    nearby.push(sn); nearby.push(tn);
+
+    var isH1 = (srcHDir === 'left' || srcHDir === 'right');
+    var isH2 = (tgtHDir === 'left' || tgtHDir === 'right');
+
+    var pts = null;
+    if (isH1 && isH2) {
+      var midX;
+      var goR = (srcHDir === 'right' && gx1 < gx2);
+      var goL = (srcHDir === 'left' && gx1 > gx2);
+      if (goR || goL) {
+        midX = (gx1 + gx2) / 2;
+        var vc = vSegCrossesNode(midX, ey1, ey2, nearby);
+        if (vc) { var vcp = getNodePos(vc); var vcw = vc.width || DEFAULT_NODE_WIDTH; midX = midX < vcp.x + vcw/2 ? vcp.x - OFS : vcp.x + vcw + OFS; }
+      } else {
+        if (srcHDir === 'right') midX = Math.max(sp.x+sw, tp.x+tw) + OFS;
+        else midX = Math.min(sp.x, tp.x) - OFS;
+      }
+      pts = [{x:ex1,y:ey1},{x:gx1,y:ey1},{x:midX,y:ey1},{x:midX,y:ey2},{x:gx2,y:ey2},{x:ex2,y:ey2}];
+      var hc = hSegCrossesNode(midX, gx2, ey2, nearby);
+      if (hc) {
+        var hcp = getNodePos(hc), hch = hc.height || DEFAULT_NODE_HEIGHT;
+        var ov = hcp.y - OFS, un = hcp.y + hch + OFS;
+        var out = Math.abs(ey1 - ov) <= Math.abs(ey1 - un) ? ov : un;
+        pts = [{x:ex1,y:ey1},{x:gx1,y:ey1},{x:midX,y:ey1},{x:midX,y:out},{x:gx2,y:out},{x:gx2,y:ey2},{x:ex2,y:ey2}];
+      }
+    } else if (!isH1 && !isH2) {
+      var midY;
+      var goD = (srcHDir === 'bottom' && gy1 < gy2);
+      var goU = (srcHDir === 'top' && gy1 > gy2);
+      if (goD || goU) {
+        midY = (gy1 + gy2) / 2;
+        var hcv = hSegCrossesNode(ex1, ex2, midY, nearby);
+        if (hcv) { var hvp = getNodePos(hcv); var hvh = hcv.height || DEFAULT_NODE_HEIGHT; midY = midY < hvp.y + hvh/2 ? hvp.y - OFS : hvp.y + hvh + OFS; }
+      } else {
+        if (srcHDir === 'bottom') midY = Math.max(sp.y+shh, tp.y+thh) + OFS;
+        else midY = Math.min(sp.y, tp.y) - OFS;
+      }
+      pts = [{x:ex1,y:ey1},{x:ex1,y:gy1},{x:ex1,y:midY},{x:ex2,y:midY},{x:ex2,y:gy2},{x:ex2,y:ey2}];
+      var vcv = vSegCrossesNode(ex2, midY, gy2, nearby);
+      if (vcv) {
+        var vvp = getNodePos(vcv), vvh = vcv.height || DEFAULT_NODE_HEIGHT;
+        var ov2 = vvp.y - OFS, un2 = vvp.y + vvh + OFS;
+        var out2 = Math.abs(midY - ov2) <= Math.abs(midY - un2) ? ov2 : un2;
+        pts = [{x:ex1,y:ey1},{x:ex1,y:gy1},{x:ex1,y:midY},{x:ex2,y:midY},{x:ex2,y:out2},{x:gx2,y:out2},{x:gx2,y:ey2},{x:ex2,y:ey2}];
+      }
+    } else {
+      // Mixed
+      if (isH1) {
+        pts = [{x:ex1,y:ey1},{x:gx1,y:ey1},{x:ex2,y:ey1},{x:ex2,y:gy2},{x:ex2,y:ey2}];
+        var mc1 = vSegCrossesNode(ex2, ey1, gy2, nearby);
+        if (mc1) { var mp1 = getNodePos(mc1); var mw1 = mc1.width || DEFAULT_NODE_WIDTH; var mx1 = Math.abs(ex1-mp1.x+OFS)<=Math.abs(ex1-mp1.x-mw1-OFS)?mp1.x-OFS:mp1.x+mw1+OFS; pts=[{x:ex1,y:ey1},{x:gx1,y:ey1},{x:mx1,y:ey1},{x:mx1,y:ey2},{x:ex2,y:ey2},{x:ex2,y:gy2},{x:ex2,y:ey2}]; }
+        var mc2 = hSegCrossesNode(gx1, ex2, ey1, nearby);
+        if (mc2) { var mp2 = getNodePos(mc2); var mh2 = mc2.height || DEFAULT_NODE_HEIGHT; var my2 = Math.abs(ey2-mp2.y+OFS)<=Math.abs(ey2-mp2.y-mh2-OFS)?mp2.y-OFS:mp2.y+mh2+OFS; pts=[{x:ex1,y:ey1},{x:gx1,y:ey1},{x:gx1,y:my2},{x:ex2,y:my2},{x:ex2,y:gy2},{x:ex2,y:ey2}]; }
+      } else {
+        pts = [{x:ex1,y:ey1},{x:ex1,y:gy1},{x:ex1,y:ey2},{x:gx2,y:ey2},{x:ex2,y:ey2}];
+        var mc3 = hSegCrossesNode(ex1, gx2, ey2, nearby);
+        if (mc3) { var mp3 = getNodePos(mc3); var mh3 = mc3.height || DEFAULT_NODE_HEIGHT; var my3 = Math.abs(ey1-mp3.y+OFS)<=Math.abs(ey1-mp3.y-mh3-OFS)?mp3.y-OFS:mp3.y+mh3+OFS; pts=[{x:ex1,y:ey1},{x:ex1,y:gy1},{x:ex1,y:my3},{x:gx2,y:my3},{x:gx2,y:ey2},{x:ex2,y:ey2}]; }
+        var mc4 = vSegCrossesNode(ex1, gy1, ey2, nearby);
+        if (mc4) { var mp4 = getNodePos(mc4); var mw4 = mc4.width || DEFAULT_NODE_WIDTH; var mx4 = Math.abs(ex2-mp4.x+OFS)<=Math.abs(ex2-mp4.x-mw4-OFS)?mp4.x-OFS:mp4.x+mw4+OFS; pts=[{x:ex1,y:ey1},{x:ex1,y:gy1},{x:mx4,y:gy1},{x:mx4,y:ey2},{x:gx2,y:ey2},{x:ex2,y:ey2}]; }
+      }
+    }
+
+    if (pts) {
+      // Dedup collinear points
+      var clean = [pts[0]];
+      for (var ci = 1; ci < pts.length; ci++) {
+        var lp = clean[clean.length - 1];
+        if (Math.abs(pts[ci].x - lp.x) > 0.1 || Math.abs(pts[ci].y - lp.y) > 0.1) clean.push(pts[ci]);
+      }
+      edge._routedPoints = clean;
+      changed = true;
+    }
+  }
+  if (changed) scheduleRender();
+}
+
+function scheduleEdgeRouting() {
+  if (edgeRoutingScheduled) return;
+  edgeRoutingScheduled = true;
+  edgeRoutingDirty = true;
+  // Run after next render frame
+  requestAnimationFrame(function() {
+    edgeRoutingScheduled = false;
+    try { routeEdgesAsync(); }
+    catch (err) { console.error('[worker] async routing error:', err); }
+  });
 }
 
 function render() {
@@ -801,7 +986,6 @@ function render() {
   var visNodeCount = visibleNodes.length;
 
   // ── Render edges (batched, with frustum culling via adjacency) ──
-  console.log('[RENDER] edges:', edges.length, 'nodes:', nodes.length, 'visNodes:', visNodeCount);
   if (edges.length > 0 && nodes.length > 0) {
     if (edgeAdjacencyDirty) rebuildEdgeAdjacency();
     var normalPath = null;
@@ -868,7 +1052,7 @@ function render() {
       }
 
       var rp = edge._routedPoints;
-      if (false && rp && rp.length >= 2) { // DISABLED: always use built-in path rendering
+      if (rp && rp.length >= 2) {
         if (edgeType === 'step' || edgeType === 'smoothstep' || edgeType === 'straight') {
           drawRoutedPath(path, rp);
         } else {
@@ -879,11 +1063,9 @@ function render() {
         path.lineTo(ex2, ey2);
       } else if (edgeType === 'step' || edgeType === 'smoothstep') {
         try {
-        console.log('[SMOOTH]', edge.id, 'srcHandle:', JSON.stringify(srcHandle), 'tgtHandle:', JSON.stringify(tgtHandle));
         // Handle directions
         var srcHDir = srcHandle.position || 'right';
         var tgtHDir = tgtHandle.position || 'left';
-        console.log('[SMOOTH]', edge.id, 'srcHDir:', srcHDir, 'tgtHDir:', tgtHDir, 'ex1:', ex1, 'ey1:', ey1, 'ex2:', ex2, 'ey2:', ey2);
         var OFS = 20;
         // Gapped points: always go OFS px away from handle first
         var gx1 = ex1, gy1 = ey1, gx2 = ex2, gy2 = ey2;
@@ -901,6 +1083,16 @@ function render() {
         var tw = tgtNode.width || DEFAULT_NODE_WIDTH, th = tgtNode.height || DEFAULT_NODE_HEIGHT;
         var isHSrc = (srcHDir === 'left' || srcHDir === 'right');
         var isHTgt = (tgtHDir === 'left' || tgtHDir === 'right');
+        // Find nearby nodes via spatial grid (excluding src/tgt)
+        var excl = {}; excl[edge.source] = true; excl[edge.target] = true;
+        var nearby = getNearbyNodes(
+          Math.min(ex1, ex2) - sw, Math.min(ey1, ey2) - sh,
+          Math.max(ex1, ex2) + tw, Math.max(ey1, ey2) + th,
+          excl
+        );
+        // Also include src/tgt in collision checks
+        nearby.push(srcNode); nearby.push(tgtNode);
+
         // Compute path points
         var waypoints = [];
         if (isHSrc && isHTgt) {
@@ -909,45 +1101,134 @@ function render() {
           var goesLeft = (srcHDir === 'left' && gx1 > gx2);
           if (goesRight || goesLeft) {
             midX = (gx1 + gx2) / 2;
+            // Check if midX vertical line crosses a neighbor node
+            var vCross = vSegCrossesNode(midX, ey1, ey2, nearby);
+            if (vCross) {
+              var vp = getNodePos(vCross);
+              var vnw = vCross.width || DEFAULT_NODE_WIDTH;
+              // Nudge midX to avoid the crossed node
+              if (midX < vp.x + vnw / 2) midX = vp.x - OFS;
+              else midX = vp.x + vnw + OFS;
+            }
           } else {
-            // Route around: go past the rightmost or leftmost node edge
             if (srcHDir === 'right') midX = Math.max(sp.x + sw, tp.x + tw) + OFS;
             else midX = Math.min(sp.x, tp.x) - OFS;
           }
-          // Check if horizontal segment from midX to gx2 would cross through target node
-          var tgtCrossH = (midX > tp.x && gx2 < tp.x + tw) || (midX < tp.x + tw && gx2 > tp.x);
-          if (tgtCrossH && !goesRight && !goesLeft) {
-            // Route around target: go past target bottom/top, then approach from handle direction
-            // Pick shorter route: over or under target node
-            var overY = tp.y - OFS;
-            var underY = tp.y + th + OFS;
-            // Use the side closer to where the vertical midline already is (ey1)
+          waypoints = [{ x: gx1, y: ey1 }, { x: midX, y: ey1 }, { x: midX, y: ey2 }, { x: gx2, y: ey2 }];
+
+          // Check each segment for crossings with nearby nodes and fix
+          // Horizontal segment at ey2 from midX to gx2
+          var hCross = hSegCrossesNode(midX, gx2, ey2, nearby);
+          if (hCross) {
+            var hp = getNodePos(hCross);
+            var hnh = hCross.height || DEFAULT_NODE_HEIGHT;
+            var overY = hp.y - OFS;
+            var underY = hp.y + hnh + OFS;
             var tgtOutY = Math.abs(ey1 - overY) <= Math.abs(ey1 - underY) ? overY : underY;
             waypoints = [
               { x: gx1, y: ey1 }, { x: midX, y: ey1 },
               { x: midX, y: tgtOutY }, { x: gx2, y: tgtOutY },
               { x: gx2, y: ey2 }
             ];
-          } else {
-            waypoints = [{ x: gx1, y: ey1 }, { x: midX, y: ey1 }, { x: midX, y: ey2 }, { x: gx2, y: ey2 }];
+          }
+          // Horizontal segment at ey1 from gx1 to midX
+          var hCross2 = hSegCrossesNode(gx1, midX, ey1, nearby);
+          if (hCross2) {
+            var hp2 = getNodePos(hCross2);
+            var hnh2 = hCross2.height || DEFAULT_NODE_HEIGHT;
+            var overY2 = hp2.y - OFS;
+            var underY2 = hp2.y + hnh2 + OFS;
+            var srcOutY = Math.abs(ey2 - overY2) <= Math.abs(ey2 - underY2) ? overY2 : underY2;
+            waypoints.splice(1, 0,
+              { x: gx1, y: srcOutY }, { x: midX, y: srcOutY }
+            );
+            // Remove the old midX,ey1 point
+            waypoints = waypoints.filter(function(p, i) {
+              return !(Math.abs(p.x - midX) < 1 && Math.abs(p.y - ey1) < 1);
+            });
+            waypoints.splice(0, 0, { x: gx1, y: ey1 });
           }
         } else if (!isHSrc && !isHTgt) {
+          // Both vertical handles
           var midY;
           var goesDown = (srcHDir === 'bottom' && gy1 < gy2);
           var goesUp = (srcHDir === 'top' && gy1 > gy2);
           if (goesDown || goesUp) {
             midY = (gy1 + gy2) / 2;
+            var hCrossV = hSegCrossesNode(ex1, ex2, midY, nearby);
+            if (hCrossV) {
+              var hvp = getNodePos(hCrossV);
+              var hvh = hCrossV.height || DEFAULT_NODE_HEIGHT;
+              if (midY < hvp.y + hvh / 2) midY = hvp.y - OFS;
+              else midY = hvp.y + hvh + OFS;
+            }
           } else {
             if (srcHDir === 'bottom') midY = Math.max(sp.y + sh, tp.y + th) + OFS;
             else midY = Math.min(sp.y, tp.y) - OFS;
           }
-          waypoints = [{ x: ex1, y: gy1 }, { x: ex1, y: midY }, { x: ex2, y: midY }, { x: gx2, y: gy2 }];
+          waypoints = [{ x: ex1, y: gy1 }, { x: ex1, y: midY }, { x: ex2, y: midY }, { x: ex2, y: gy2 }];
+          // Check vertical segments for crossings
+          var vCrossV1 = vSegCrossesNode(ex1, gy1, midY, nearby);
+          if (vCrossV1) {
+            var vvp1 = getNodePos(vCrossV1);
+            var vvw1 = vCrossV1.width || DEFAULT_NODE_WIDTH;
+            var leftX = vvp1.x - OFS, rightX = vvp1.x + vvw1 + OFS;
+            var outX1 = Math.abs(ex2 - leftX) <= Math.abs(ex2 - rightX) ? leftX : rightX;
+            waypoints = [
+              { x: ex1, y: gy1 }, { x: outX1, y: gy1 },
+              { x: outX1, y: midY }, { x: ex2, y: midY }, { x: ex2, y: gy2 }
+            ];
+          }
+          var vCrossV2 = vSegCrossesNode(ex2, midY, gy2, nearby);
+          if (vCrossV2) {
+            var vvp2 = getNodePos(vCrossV2);
+            var vvh2 = vCrossV2.height || DEFAULT_NODE_HEIGHT;
+            var overY3 = vvp2.y - OFS, underY3 = vvp2.y + vvh2 + OFS;
+            var outY3 = Math.abs(midY - overY3) <= Math.abs(midY - underY3) ? overY3 : underY3;
+            waypoints.splice(waypoints.length - 1, 0,
+              { x: gx2, y: outY3 }
+            );
+          }
         } else {
           // Mixed: horizontal src + vertical tgt or vice versa → L-shape
           if (isHSrc) {
             waypoints = [{ x: gx1, y: ey1 }, { x: ex2, y: ey1 }, { x: ex2, y: gy2 }];
+            // Check corner crossing
+            var mxCross1 = vSegCrossesNode(ex2, ey1, gy2, nearby);
+            if (mxCross1) {
+              var mxp1 = getNodePos(mxCross1);
+              var mxw1 = mxCross1.width || DEFAULT_NODE_WIDTH;
+              var mxLeft = mxp1.x - OFS, mxRight = mxp1.x + mxw1 + OFS;
+              var mxOutX = Math.abs(ex1 - mxLeft) <= Math.abs(ex1 - mxRight) ? mxLeft : mxRight;
+              waypoints = [{ x: gx1, y: ey1 }, { x: mxOutX, y: ey1 }, { x: mxOutX, y: ey2 }, { x: ex2, y: ey2 }, { x: ex2, y: gy2 }];
+            }
+            var mxCross2 = hSegCrossesNode(gx1, ex2, ey1, nearby);
+            if (mxCross2) {
+              var mxp2 = getNodePos(mxCross2);
+              var mxh2 = mxCross2.height || DEFAULT_NODE_HEIGHT;
+              var mxOver = mxp2.y - OFS, mxUnder = mxp2.y + mxh2 + OFS;
+              var mxOutY = Math.abs(ey2 - mxOver) <= Math.abs(ey2 - mxUnder) ? mxOver : mxUnder;
+              waypoints = [{ x: gx1, y: ey1 }, { x: gx1, y: mxOutY }, { x: ex2, y: mxOutY }, { x: ex2, y: gy2 }];
+            }
           } else {
             waypoints = [{ x: ex1, y: gy1 }, { x: ex1, y: ey2 }, { x: gx2, y: ey2 }];
+            // Check corner crossing
+            var mxCross3 = hSegCrossesNode(ex1, gx2, ey2, nearby);
+            if (mxCross3) {
+              var mxp3 = getNodePos(mxCross3);
+              var mxh3 = mxCross3.height || DEFAULT_NODE_HEIGHT;
+              var mxOver2 = mxp3.y - OFS, mxUnder2 = mxp3.y + mxh3 + OFS;
+              var mxOutY2 = Math.abs(ey1 - mxOver2) <= Math.abs(ey1 - mxUnder2) ? mxOver2 : mxUnder2;
+              waypoints = [{ x: ex1, y: gy1 }, { x: ex1, y: mxOutY2 }, { x: gx2, y: mxOutY2 }, { x: gx2, y: ey2 }];
+            }
+            var mxCross4 = vSegCrossesNode(ex1, gy1, ey2, nearby);
+            if (mxCross4) {
+              var mxp4 = getNodePos(mxCross4);
+              var mxw4 = mxCross4.width || DEFAULT_NODE_WIDTH;
+              var mxLeft2 = mxp4.x - OFS, mxRight2 = mxp4.x + mxw4 + OFS;
+              var mxOutX2 = Math.abs(ex2 - mxLeft2) <= Math.abs(ex2 - mxRight2) ? mxLeft2 : mxRight2;
+              waypoints = [{ x: ex1, y: gy1 }, { x: mxOutX2, y: gy1 }, { x: mxOutX2, y: ey2 }, { x: gx2, y: ey2 }];
+            }
           }
         }
         // Build full path: handle → gap → waypoints → gap → handle
@@ -963,7 +1244,6 @@ function render() {
           }
         }
         // Draw
-        console.log('[edge]', edge.id, 'cleanPts:', JSON.stringify(cleanPts));
         var br = edgeType === 'smoothstep' ? 8 : 0;
         path.moveTo(cleanPts[0].x, cleanPts[0].y);
         for (var di = 1; di < cleanPts.length; di++) {
