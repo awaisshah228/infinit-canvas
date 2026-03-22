@@ -16,7 +16,6 @@ var renderScheduled = false;
 var bgVariant = 'lines'; // 'lines' | 'dots' | 'cross'
 var bgSize = 1;
 var bgColor = null; // null = use theme default
-
 // Connection line being dragged (null when not connecting)
 var connectingLine = null; // { from: {x,y}, to: {x,y} }
 
@@ -425,7 +424,6 @@ self.onmessage = function(e) {
             existing.selected = u.selected;
           }
         }
-        // Only invalidate handle cache (positions changed) — spatial grid rebuild is deferred
         handleCacheDirty = true;
         nodeSpatialDirty = true;
         scheduleRender();

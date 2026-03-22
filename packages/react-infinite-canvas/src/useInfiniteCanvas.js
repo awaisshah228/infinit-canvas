@@ -12,7 +12,6 @@
  */
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { snapPosition as snapPos, clampPosition, getNodesBounds, getViewportForBounds } from './utils/graph.js';
-import { computeRoutedEdges } from './utils/edgeRouter.js';
 
 const canvasWorkerMap = new WeakMap();
 
@@ -230,105 +229,22 @@ export default function useInfiniteCanvas({
     });
   }, []);
 
-  // Ref to hold last resolved nodes for routing
+  // Ref to hold last resolved nodes
   const resolvedNodesRef = useRef([]);
-  const edgeRouterRef = useRef(null);
-  const routeReqIdRef = useRef(0);
-  const routeDebounceRef = useRef(null);
-  const lastRoutedPositionsRef = useRef('');
-
-  // Send edges to the edge router worker for off-thread routing.
-  // The worker posts back routed edges which we forward to the canvas worker.
-  const routeEdgesInWorker = useCallback((resolvedNodes, edgeList) => {
-    const router = getEdgeRouterWorker();
-    // Set up listener if not yet done
-    if (!edgeRouterRef.current) {
-      edgeRouterRef.current = true;
-      router.onmessage = (ev) => {
-        const msg = ev.data;
-        if (msg.type === 'routed') {
-          // Only apply if this is the latest request (skip stale results)
-          if (msg.id === routeReqIdRef.current) {
-            workerRef.current?.postMessage({ type: 'edges', data: { edges: msg.edges } });
-          }
-        } else if (msg.type === 'routedSingle') {
-          if (msg.id === routeReqIdRef.current) {
-            const c = connectingRef.current;
-            const end = connectEndRef.current;
-            if (c && end) {
-              workerRef.current?.postMessage({ type: 'connecting', data: { from: c.startPos, to: end, _routedPoints: msg.points } });
-            }
-          }
-        }
-      };
-    }
-    const id = ++edgeRouterReqId;
-    routeReqIdRef.current = id;
-    // Strip heavy/non-serializable fields — send only what the router needs
-    const lightNodes = resolvedNodes.map(n => ({
-      id: n.id, position: n.position, _absolutePosition: n._absolutePosition,
-      width: n.width, height: n.height, measured: n.measured,
-      handles: n.handles, hidden: n.hidden,
-    }));
-    const lightEdges = edgeList.map(e => ({
-      id: e.id, source: e.source, target: e.target,
-      sourceHandle: e.sourceHandle, targetHandle: e.targetHandle,
-      type: e.type, animated: e.animated, label: e.label,
-      selected: e.selected, data: e.data, style: e.style,
-    }));
-    router.postMessage({ type: 'route', id, nodes: lightNodes, edges: lightEdges });
-  }, []);
 
   useEffect(() => {
     nodesRef.current = [...nodes];
     const resolved = resolveAbsolutePositions(nodes);
     resolvedNodesRef.current = resolved;
+    // Canvas worker handles routing internally — just send nodes
     workerRef.current?.postMessage({ type: 'nodes', data: { nodes: resolved } });
-    // Re-route edges only when node positions/dimensions actually changed
-    // (skip rerouting for selection-only or data-only changes)
-    if (edgeRouting && edgesRef.current.length > 0) {
-      // Build a lightweight fingerprint of positions + dimensions
-      let posKey = '';
-      for (let i = 0; i < resolved.length; i++) {
-        const n = resolved[i];
-        const p = n._absolutePosition || n.position;
-        posKey += n.id + ':' + p.x + ',' + p.y + ',' + (n.width || 0) + ',' + (n.height || 0) + ';';
-      }
-      if (posKey !== lastRoutedPositionsRef.current) {
-        lastRoutedPositionsRef.current = posKey;
-        // Debounce routing to avoid flooding the worker during rapid drags
-        if (routeDebounceRef.current) clearTimeout(routeDebounceRef.current);
-        routeDebounceRef.current = setTimeout(() => {
-          routeEdgesInWorker(resolvedNodesRef.current, edgesRef.current);
-        }, 16);
-      }
-    }
-  }, [nodes, resolveAbsolutePositions, edgeRouting, routeEdgesInWorker]);
+  }, [nodes, resolveAbsolutePositions]);
 
-  const lastRoutedEdgeKeyRef = useRef('');
   useEffect(() => {
     edgesRef.current = [...edges];
-    if (edgeRouting && resolvedNodesRef.current.length > 0) {
-      // Build fingerprint of edge connections (skip re-routing for selection-only changes)
-      let edgeKey = '';
-      for (let i = 0; i < edges.length; i++) {
-        const e = edges[i];
-        edgeKey += e.id + ':' + e.source + '>' + e.target + ';';
-      }
-      if (edgeKey !== lastRoutedEdgeKeyRef.current) {
-        lastRoutedEdgeKeyRef.current = edgeKey;
-        if (routeDebounceRef.current) clearTimeout(routeDebounceRef.current);
-        routeDebounceRef.current = setTimeout(() => {
-          routeEdgesInWorker(resolvedNodesRef.current, edgesRef.current);
-        }, 16);
-      } else {
-        // Edges changed (e.g. selection) but connections are the same — just forward to canvas worker
-        workerRef.current?.postMessage({ type: 'edges', data: { edges: [...edges] } });
-      }
-    } else {
-      workerRef.current?.postMessage({ type: 'edges', data: { edges: [...edges] } });
-    }
-  }, [edges, edgeRouting, routeEdgesInWorker]);
+    // Canvas worker handles routing internally — just send edges
+    workerRef.current?.postMessage({ type: 'edges', data: { edges: [...edges] } });
+  }, [edges]);
 
   // Helpers
   const screenToWorld = useCallback((clientX, clientY) => {
@@ -438,16 +354,13 @@ export default function useInfiniteCanvas({
     const resolvedDark = dark !== undefined ? dark : matchMedia('(prefers-color-scheme: dark)').matches;
 
     const initNodes = resolveAbsolutePositions(nodesRef.current);
-    const initEdges = edgeRouting && initNodes.length > 0 && edgesRef.current.length > 0
-      ? computeRoutedEdges(initNodes, edgesRef.current)
-      : edgesRef.current;
     resolvedNodesRef.current = initNodes;
 
     const { worker } = getOrCreateWorker(canvas, {
       width: rect.width, height: rect.height,
       camera: cameraRef.current, cards: cardsRef.current,
-      nodes: initNodes, edges: initEdges,
-      dark: resolvedDark, gridSize,
+      nodes: initNodes, edges: edgesRef.current,
+      dark: resolvedDark, gridSize, edgeRouting,
     });
 
     worker.onmessage = (e) => {
@@ -509,36 +422,13 @@ export default function useInfiniteCanvas({
     const c = connectingRef.current;
     const end = connectEndRef.current;
     if (c && end) {
-      if (edgeRouting) {
-        // Route connection line in worker
-        const router = getEdgeRouterWorker();
-        const id = ++edgeRouterReqId;
-        routeReqIdRef.current = id;
-        const lightNodes = resolvedNodesRef.current.map(n => ({
-          id: n.id, position: n.position, _absolutePosition: n._absolutePosition,
-          width: n.width, height: n.height, measured: n.measured,
-          handles: n.handles, hidden: n.hidden,
-        }));
-        router.postMessage({
-          type: 'routeSingle', id,
-          fromX: c.startPos.x, fromY: c.startPos.y,
-          toX: end.x, toY: end.y,
-          fromDir: c.sourceType === 'source' ? 'right' : 'left',
-          toDir: 'left',
-          nodes: lightNodes,
-          excludeNodeIds: [c.sourceId],
-        });
-        // Also send unrouted immediately so the line shows without waiting
-        workerRef.current?.postMessage({ type: 'connecting', data: { from: c.startPos, to: end, _routedPoints: null } });
-      } else {
-        workerRef.current?.postMessage({ type: 'connecting', data: { from: c.startPos, to: end, _routedPoints: null } });
-      }
+      workerRef.current?.postMessage({ type: 'connecting', data: { from: c.startPos, to: end, _routedPoints: null } });
       setConnection({ source: c.sourceId, sourceHandle: c.sourceHandle, target: null, targetHandle: null });
     } else {
       workerRef.current?.postMessage({ type: 'connecting', data: null });
       setConnection(null);
     }
-  }, [edgeRouting]);
+  }, []);
 
   const sendSelectionBox = useCallback(() => {
     const box = selectionBoxRef.current;
@@ -825,6 +715,8 @@ export default function useInfiniteCanvas({
 
       // Send only changed positions to canvas worker
       workerRef.current?.postMessage({ type: 'nodePositions', data: { updates: workerUpdates } });
+
+      // Canvas worker handles edge routing internally — no main thread involvement
 
       // Auto-pan when dragging near canvas edge
       if (autoPanOnNodeDrag) {
@@ -1267,16 +1159,8 @@ export default function useInfiniteCanvas({
   // This still runs on main thread (needed synchronously for React render)
   // but skips during drag — canvas worker handles visual updates via the
   // off-thread edge router. React edges catch up when drag ends.
-  const routedEdgesCache = useRef(edges);
-  const routedEdgesForReact = useMemo(() => {
-    if (!edgeRouting || !nodes.length || !edges.length) return edges;
-    const isDragging = nodes.some(n => n.dragging);
-    if (isDragging) return routedEdgesCache.current;
-    const resolved = resolveAbsolutePositions(nodes);
-    const routed = computeRoutedEdges(resolved, edges);
-    routedEdgesCache.current = routed;
-    return routed;
-  }, [nodes, edges, edgeRouting, resolveAbsolutePositions]);
+  // Edge routing is handled entirely in the canvas worker
+  const routedEdgesForReact = edges;
 
   // Store object shared via context
   const store = useMemo(() => ({
