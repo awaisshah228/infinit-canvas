@@ -1,8 +1,8 @@
 'use client';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
-  Controls, Background, Panel,
+  Controls, Background, Panel, useReactFlow,
 } from 'react-infinite-canvas';
 import 'react-infinite-canvas/styles.css';
 
@@ -13,10 +13,27 @@ const initialNodes = [
 let id = 1;
 const getId = () => `dnd_${id++}`;
 
+function DropHandler({ dragType, onDropped }) {
+  const { screenToFlowPosition } = useReactFlow();
+
+  useEffect(() => {
+    onDropped.current = (event) => {
+      if (!dragType) return null;
+      return screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+    };
+  }, [dragType, screenToFlowPosition, onDropped]);
+
+  return null;
+}
+
 export default function DragAndDropExample() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [dragType, setDragType] = useState(null);
+  const onDroppedRef = useRef(null);
 
   const onConnect = useCallback(
     (connection) => setEdges((eds) => addEdge(connection, eds)),
@@ -35,12 +52,15 @@ export default function DragAndDropExample() {
 
   const onDrop = useCallback((event) => {
     event.preventDefault();
-    if (!dragType) return;
+    if (!dragType || !onDroppedRef.current) return;
+
+    const position = onDroppedRef.current(event);
+    if (!position) return;
 
     const newNode = {
       id: getId(),
       type: dragType,
-      position: { x: event.nativeEvent.offsetX, y: event.nativeEvent.offsetY },
+      position,
       data: { label: `${dragType} node` },
     };
 
@@ -57,7 +77,10 @@ export default function DragAndDropExample() {
       onConnect={onConnect}
       fitView
       height="350px"
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
+      <DropHandler dragType={dragType} onDropped={onDroppedRef} />
       <Controls />
       <Background variant="dots" />
       <Panel position="top-right">

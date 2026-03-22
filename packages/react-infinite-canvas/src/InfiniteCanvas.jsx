@@ -59,6 +59,9 @@ export default function InfiniteCanvas({
   onInit, onMoveStart, onMove, onMoveEnd,
   onDelete, onBeforeDelete, onError,
 
+  // Drag and drop
+  onDragOver, onDrop, onDragEnter, onDragLeave,
+
   // Behavior
 
   nodesDraggable, nodesConnectable, elementsSelectable,
@@ -195,6 +198,10 @@ export default function InfiniteCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
         tabIndex={0}
       >
         {/* Canvas layer — grid, default nodes/edges, handles, selection */}

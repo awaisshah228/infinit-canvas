@@ -59,6 +59,7 @@ const NAV = [
     title: 'Examples',
     links: [
       { href: '/docs/examples/overview', label: 'Feature Overview' },
+      { href: '/docs/examples/comprehensive', label: 'Comprehensive' },
       { href: '/docs/examples/drag-and-drop', label: 'Drag and Drop' },
       { href: '/docs/examples/save-restore', label: 'Save & Restore' },
       { href: '/docs/examples/stress-test', label: 'Stress Test' },
