@@ -1,44 +1,8 @@
-# Infinite Canvas
+# react-infinite-canvas
 
-A high-performance infinite canvas engine with smooth pan, zoom, and card rendering. All rendering runs in a **Web Worker** via `OffscreenCanvas` so the main thread is never blocked. Handles **2000+ cards** at 60fps.
+A high-performance infinite canvas React component powered by **OffscreenCanvas + Web Workers**. Provides a React Flow-compatible API for nodes, edges, and interactions -- but renders everything on a canvas for 10x better performance at scale.
 
-## Monorepo Structure
-
-```
-infinit-canvas/
-  packages/
-    react-infinite-canvas/       -- npm package (publishable)
-      src/
-        index.js                 -- Package entry: exports <InfiniteCanvas> + useInfiniteCanvas
-        InfiniteCanvas.jsx       -- Ready-to-use React component with all props
-        useInfiniteCanvas.js     -- Core hook: worker lifecycle, pan/zoom, pointer events
-        workerCode.js            -- Worker source inlined as JS string (for blob URL)
-        canvas.worker.js         -- Standalone worker file (reference/HTML usage)
-        createWorker.js          -- Worker factory (legacy, replaced by inline blob)
-        styles.css               -- Minimal CSS for the canvas wrapper
-      vite.config.js             -- Vite library build config
-      package.json               -- npm package config with peer deps
-
-  apps/
-    html/                        -- Pure HTML/JS demo (zero build tools)
-      canvas.worker.js           -- Worker with spatial grid + batched rendering
-      js/
-        main.js                  -- Entry: wires worker, events, controls
-        state.js                 -- Camera + cards state
-        events.js                -- Pointer/wheel event handlers
-        worker-bridge.js         -- OffscreenCanvas transfer + worker init
-        controls.js              -- UI button handlers
-      stress-test.html           -- 2000-card performance benchmark
-      infinite_canvas_explainer.html -- Interactive demo with code tabs
-
-    react/                       -- React + Vite demo app
-      src/
-        App.jsx                  -- Demo app consuming the package
-        StressTest.jsx           -- 2000-card stress test page
-        components/
-          InfiniteCanvas.jsx     -- Original hook (before package extraction)
-          CodeTabs.jsx           -- Code snippet tabs UI
-```
+**5000+ nodes at 60fps** vs React Flow's ~500 before lag.
 
 ## Install
 
@@ -49,328 +13,348 @@ npm install react-infinite-canvas
 ## Quick Start
 
 ```jsx
-import { InfiniteCanvas } from 'react-infinite-canvas';
+import { InfiniteCanvas, useNodesState, useEdgesState, addEdge } from 'react-infinite-canvas';
 import 'react-infinite-canvas/styles.css';
 
-// Cards are positioned in world-space coordinates
-// x, y = top-left position | w, h = card dimensions
-const cards = [
-  { x: 60, y: 80, w: 160, h: 90, title: 'Note A', body: 'Hello!' },
-  { x: 320, y: 140, w: 160, h: 90, title: 'Note B', body: 'World!' },
+const initialNodes = [
+  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Node 1' } },
+  { id: '2', position: { x: 250, y: 100 }, data: { label: 'Node 2' } },
+];
+
+const initialEdges = [
+  { id: 'e1-2', source: '1', target: '2', label: 'connected' },
 ];
 
 function App() {
-  return <InfiniteCanvas cards={cards} height="500px" />;
-}
-```
-
-## Props
-
-| Prop | Default | Description |
-|------|---------|-------------|
-| `cards` | `[]` | Array of `{ x, y, w, h, title, body }` positioned in world coordinates |
-| `dark` | auto | Force dark/light mode (auto-detects `prefers-color-scheme`) |
-| `gridSize` | `40` | Background grid cell size in pixels |
-| `zoomMin` / `zoomMax` | `0.1` / `4` | Zoom clamp range |
-| `initialCamera` | `{ x:0, y:0, zoom:1 }` | Starting camera position and zoom |
-| `onHudUpdate` | - | Callback fired with `{ wx, wy, zoom, renderMs, fps, visible }` |
-| `showHud` / `showHint` | `true` | Toggle coordinate HUD and drag hint overlays |
-| `hintText` | `'Drag to pan...'` | Custom hint text |
-| `width` / `height` | `'100%'` / `'420px'` | Container dimensions (CSS values) |
-| `className` / `style` | - | Custom styling on the wrapper div |
-| `children` | - | Render arbitrary React children inside the canvas wrapper |
-
-## Hook API
-
-For full control over the canvas (custom UI, imperative camera control):
-
-```jsx
-import { useInfiniteCanvas } from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
-
-function MyCanvas() {
-  const {
-    wrapRef,        // ref for the wrapper div (attach pointer events here)
-    canvasRef,      // ref for the <canvas> element
-    onPointerDown,  // handler: starts drag, captures pointer
-    onPointerMove,  // handler: updates camera.x/y during drag
-    onPointerUp,    // handler: ends drag
-    resetView,      // () => resets camera to initialCamera
-    addCard,        // (card?) => adds card at center or at given position
-    getCamera,      // () => { x, y, zoom } snapshot
-    setCamera,      // ({ x?, y?, zoom? }) => updates camera imperatively
-  } = useInfiniteCanvas({
-    cards: myCards,
-    onHudUpdate: (hud) => console.log(hud),
-  });
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const onConnect = (conn) => setEdges((eds) => addEdge(conn, eds));
 
   return (
-    <div ref={wrapRef} className="ric-wrap"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+    <InfiniteCanvas
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      height="500px"
     >
-      <canvas ref={canvasRef} className="ric-canvas" />
-    </div>
+      <Controls />
+      <MiniMap />
+      <Background variant="dots" />
+    </InfiniteCanvas>
   );
 }
 ```
 
-## Deep Dive: How It Works
+## React Flow Compatibility
 
-### 1. Architecture Overview
+This package mirrors the React Flow API so migration is straightforward. Here's what's supported, what's different, and what's missing.
+
+### Architecture Difference
+
+| | React Flow | react-infinite-canvas |
+|---|---|---|
+| Rendering | DOM (React divs + SVG) | OffscreenCanvas + Web Worker |
+| Custom nodes | Any React component | Canvas-drawn (no DOM inside nodes) |
+| Custom edges | SVG path components | Canvas-drawn curves |
+| Max nodes (60fps) | ~500 | 5000+ |
+| Main thread | Blocked during render | Always free |
+| Store | Zustand | React context + refs |
+
+### What We Have
+
+#### Core Component
+
+```jsx
+<InfiniteCanvas
+  // Node & edge data (same as React Flow)
+  nodes={nodes}
+  edges={edges}
+  onNodesChange={onNodesChange}
+  onEdgesChange={onEdgesChange}
+  onConnect={onConnect}
+
+  // Node interaction
+  onNodeClick={onNodeClick}
+  onNodeDragStart={onNodeDragStart}
+  onNodeDrag={onNodeDrag}
+  onNodeDragStop={onNodeDragStop}
+  onEdgeClick={onEdgeClick}
+  onPaneClick={onPaneClick}
+  onSelectionChange={onSelectionChange}
+
+  // Behavior
+  nodesDraggable={true}
+  nodesConnectable={true}
+  elementsSelectable={true}
+  multiSelectionKeyCode="Shift"
+  selectionOnDrag={false}
+
+  // Appearance
+  dark={false}
+  gridSize={40}
+  zoomMin={0.1}
+  zoomMax={4}
+  initialCamera={{ x: 0, y: 0, zoom: 1 }}
+  width="100%"
+  height="500px"
+
+  // Legacy card API
+  cards={cards}
+/>
+```
+
+#### Hooks
+
+| Hook | React Flow | Us | Notes |
+|---|---|---|---|
+| `useNodesState` | Yes | Yes | Same API |
+| `useEdgesState` | Yes | Yes | Same API |
+| `useReactFlow` | Yes | Yes | `fitView`, `zoomIn/Out/To`, `getNodes/setNodes`, `addNodes/addEdges`, `deleteElements`, `screenToFlowPosition`, `flowToScreenPosition`, `setCenter`, `getViewport/setViewport` |
+| `useNodes` | Yes | Yes | Read current nodes |
+| `useEdges` | Yes | Yes | Read current edges |
+| `useViewport` | Yes | Yes | Read `{ x, y, zoom }` |
+| `useConnection` | Yes | Yes | Connection state while dragging |
+| `useNodesData` | Yes | Yes | Read data for specific node IDs |
+| `useNodeConnections` | Yes | Yes | Edges connected to a node |
+| `useHandleConnections` | Yes | Yes | Edges for a specific handle |
+| `useOnViewportChange` | Yes | Yes | Subscribe to viewport changes |
+| `useOnSelectionChange` | Yes | Yes | Subscribe to selection changes |
+| `useKeyPress` | Yes | Yes | Track key state |
+
+#### Utilities
+
+| Utility | React Flow | Us |
+|---|---|---|
+| `applyNodeChanges` | Yes | Yes |
+| `applyEdgeChanges` | Yes | Yes |
+| `addEdge` | Yes | Yes |
+| `isNode` / `isEdge` | Yes | Yes |
+| `getConnectedEdges` | Yes | Yes |
+| `getIncomers` / `getOutgoers` | Yes | Yes |
+| `getNodesBounds` | Yes | Yes |
+| `getViewportForBounds` | Yes | Yes |
+
+#### Components
+
+| Component | React Flow | Us | Notes |
+|---|---|---|---|
+| `Controls` | Yes | Yes | Zoom in/out + fit view |
+| `MiniMap` | Yes | Yes | Overview with viewport indicator |
+| `Background` | Yes | Yes | `lines`, `dots`, `cross` variants |
+| `Panel` | Yes | Yes | Positioned overlays |
+
+#### Interaction Features
+
+| Feature | React Flow | Us |
+|---|---|---|
+| Node drag | Yes | Yes |
+| Multi-select (Shift+click) | Yes | Yes |
+| Selection box (Shift+drag) | Yes | Yes |
+| Multi-drag (move all selected) | Yes | Yes |
+| Edge click/select | Yes | Yes |
+| Delete selected (Delete key) | Yes | Yes |
+| Select all (Ctrl+A) | Yes | Yes |
+| Connection by handle drag | Yes | Yes |
+| Custom handle positions | Yes | Yes (top/bottom/left/right or x,y) |
+| Multiple handles per node | Yes | Yes |
+| Edge types (bezier/straight/step/smoothstep) | Yes | Yes |
+| Animated edges | Yes | Yes |
+| Edge labels | Yes | Yes |
+| Frustum culling | Yes | Yes (spatial grid) |
+| Zoom around cursor | Yes | Yes |
+
+---
+
+### What's Missing (vs React Flow)
+
+#### High Impact -- Architecture Gap
+
+These require a **hybrid DOM + canvas approach** to implement:
+
+| Feature | Description | Why Missing |
+|---|---|---|
+| **Custom node components** (`nodeTypes`) | Render React inside nodes (buttons, inputs, forms) | Nodes are canvas-drawn, not DOM elements |
+| **Custom edge components** (`edgeTypes`) | Render custom SVG/React along edges | Edges are canvas-drawn |
+| **`<Handle>` component** | Declarative connection points in custom nodes | Tied to DOM-based custom nodes |
+| **`NodeResizer`** | Drag-to-resize nodes | Needs DOM handles |
+| **`NodeToolbar`** / **`EdgeToolbar`** | Floating toolbars attached to nodes/edges | Needs DOM overlay positioning |
+| **`EdgeLabelRenderer`** | Portal-based edge label rendering | Needs DOM portal |
+| **`ViewportPortal`** | Render React elements at viewport coordinates | Needs DOM overlay |
+
+#### Medium Impact -- Missing Features
+
+| Feature | React Flow Prop/API | Status |
+|---|---|---|
+| Snap to grid | `snapToGrid`, `snapGrid` | Missing |
+| Edge reconnect | `edgesReconnectable`, `onReconnect` | Missing |
+| Sub-flows / parent nodes | `parentId`, `extent: 'parent'` | Missing |
+| Connection validation | `isValidConnection` | Missing |
+| Connection mode | `connectionMode` (Strict/Loose) | Missing |
+| Click-to-connect | `connectOnClick` | Missing |
+| Auto-pan on drag | `autoPanOnNodeDrag`, `autoPanOnConnect` | Missing |
+| Pan boundaries | `translateExtent` | Missing |
+| Fit view on init | `fitView` prop | Missing (use `useReactFlow().fitView()`) |
+| Node extent/constraints | `nodeExtent`, `nodeOrigin` | Missing |
+| Selection mode | `selectionMode` (Full/Partial) | Missing |
+| Elevate on select | `elevateNodesOnSelect` | Missing |
+| Pan activation key | `panActivationKeyCode` (Space) | Missing |
+| Zoom on double-click | `zoomOnDoubleClick` | Missing |
+| Pinch to zoom | `zoomOnPinch` | Missing |
+
+#### Missing Event Handlers
+
+| Event | Status |
+|---|---|
+| `onNodeDoubleClick` | Missing |
+| `onNodeMouseEnter` / `Move` / `Leave` | Missing |
+| `onNodeContextMenu` | Missing |
+| `onEdgeDoubleClick` | Missing |
+| `onEdgeMouseEnter` / `Move` / `Leave` | Missing |
+| `onEdgeContextMenu` | Missing |
+| `onConnectStart` / `onConnectEnd` | Missing |
+| `onPaneContextMenu` | Missing |
+| `onPaneMouseEnter` / `Move` / `Leave` | Missing |
+| `onMoveStart` / `onMove` / `onMoveEnd` | Missing |
+| `onInit` | Missing |
+| `onDelete` / `onBeforeDelete` | Missing |
+| `onReconnect` / `onReconnectStart` / `End` | Missing |
+| `onError` | Missing |
+| `onSelectionDragStart` / `Drag` / `Stop` | Missing |
+
+#### Missing Hooks
+
+| Hook | What it does |
+|---|---|
+| `useUpdateNodeInternals` | Force recalculate node handles/bounds |
+| `useNodesInitialized` | Detect when nodes are measured |
+| `useInternalNode` | Access internal node data (absolute position) |
+| `useStore` / `useStoreApi` | Direct store access |
+
+#### Missing Utilities
+
+| Utility | What it does |
+|---|---|
+| `getBezierPath` | Generate SVG path string for bezier edges |
+| `getSmoothStepPath` | Generate SVG path for smooth step edges |
+| `getStraightPath` | Generate SVG path for straight edges |
+| `getSimpleBezierPath` | Simplified bezier path |
+| `getEdgeCenter` | Center point of any edge |
+| `getNodesInside` | Nodes within a rectangle |
+| `snapPosition` | Snap position to grid |
+| `clampPosition` | Clamp to extent boundaries |
+| `getNodeDimensions` | Get node width/height with fallbacks |
+
+#### Missing Props
+
+| Prop | What it does |
+|---|---|
+| `connectionRadius` | Hit radius for connection drops |
+| `connectionLineType` | Style of connection line |
+| `connectionLineComponent` | Custom connection line |
+| `deleteKeyCode` | Configurable delete key |
+| `noDragClassName` | CSS class to prevent drag |
+| `noPanClassName` | CSS class to prevent pan |
+| `panOnScroll` / `panOnScrollMode` | Pan instead of zoom on scroll |
+| `defaultEdgeOptions` | Default styling for new edges |
+| `defaultMarkerColor` | Arrow marker color |
+| `colorMode` | Light/dark toggle |
+
+---
+
+## Package Structure
 
 ```
-Main Thread (React)                  Worker Thread (OffscreenCanvas)
-===================                  ================================
+src/
+  index.js                          # Public API exports
+  InfiniteCanvas.jsx                # Main component (context provider + canvas)
+  useInfiniteCanvas.js              # Core hook (worker lifecycle, interactions)
+
+  components/
+    Background/index.jsx            # Grid variant: lines, dots, cross
+    Controls/index.jsx              # Zoom in/out + fit view buttons
+    MiniMap/index.jsx               # Overview minimap with viewport rect
+    Panel/index.jsx                 # Positioned overlay panel
+
+  context/
+    InfiniteCanvasContext.js         # React context for store (used by hooks)
+
+  hooks/
+    index.js                        # useReactFlow, useNodes, useEdges,
+                                    # useViewport, useConnection, useNodesData,
+                                    # useNodeConnections, useHandleConnections,
+                                    # useOnViewportChange, useOnSelectionChange,
+                                    # useKeyPress
+    useNodesState.js                # useState + onNodesChange helper
+    useEdgesState.js                # useState + onEdgesChange helper
+
+  utils/
+    changes.js                      # applyNodeChanges, applyEdgeChanges, addEdge
+    graph.js                        # isNode, isEdge, getConnectedEdges,
+                                    # getIncomers, getOutgoers, getNodesBounds,
+                                    # getViewportForBounds
+
+  worker/
+    canvas.worker.js                # OffscreenCanvas renderer (grid, nodes,
+                                    # edges, handles, selection box, connection
+                                    # lines, frustum culling, batched rendering)
+
+  styles.css                        # Minimal CSS for wrapper
+```
+
+## How It Works
+
+### Architecture
+
+```
+Main Thread (React)                    Worker Thread (OffscreenCanvas)
+===================                    ================================
 
 User drags/scrolls
         |
-        v
-Pointer/wheel event handlers
-capture input, update camera
-state (cameraRef), and send
-postMessage({ type: 'camera' })  --->  Worker receives camera update
-                                       |
-                                       v
-                                       scheduleRender() coalesces
-                                       multiple updates into one
-                                       requestAnimationFrame
-                                       |
-                                       v
-                                       render() executes:
-                                       1. Spatial grid lookup (O(1))
-                                       2. LOD determination
-                                       3. Multi-pass batched drawing
-                                       4. FPS/timing measurement
-                                       |
-                                       v
-postMessage({ type: 'hud' })   <---  Sends HUD data back (throttled
-        |                            to every 100ms, not every frame)
-        v
-onHudUpdate callback fires,
-React updates HUD overlay
+Pointer/wheel handlers ──postMessage──> Worker receives update
+update camera ref (zero                         |
+re-renders) and send                    scheduleRender() coalesces
+to worker                               into one rAF
+        |                                       |
+        |                               render() executes:
+        |                                 1. Spatial grid lookup (O(1))
+        |                                 2. Frustum cull nodes/edges
+        |                                 3. Batched multi-pass drawing
+        |                                 4. LOD (skip text/shadows at low zoom)
+        |                                       |
+onHudUpdate callback  <──postMessage──  HUD data (throttled to 100ms)
 ```
 
-### 2. Camera Transform (The Core Idea)
+### Performance Optimizations
 
-The infinite canvas works by never moving content — instead, we move a **camera**. All cards exist at fixed world-space coordinates. The camera's position and zoom level determine what's visible.
-
-```js
-// Before drawing any content, apply the camera transform:
-ctx.save();
-ctx.translate(camera.x, camera.y);   // Pan: shift the origin by camera offset
-ctx.scale(camera.zoom, camera.zoom); // Zoom: scale everything uniformly
-// Now draw all cards at their world-space (x, y) coordinates
-// The canvas context handles the screen projection automatically
-drawAllCards();
-ctx.restore();
-```
-
-**Why this works:** When you draw a card at world position (200, 300), the canvas context automatically transforms it to screen position `(200 * zoom + camera.x, 300 * zoom + camera.y)`. No per-card math needed.
-
-### 3. Panning (Pointer Events)
-
-Panning accumulates the pointer's delta movement into the camera offset:
-
-```js
-// On pointermove during drag:
-camera.x += e.clientX - lastPointer.x;  // Add horizontal delta
-camera.y += e.clientY - lastPointer.y;  // Add vertical delta
-lastPointer = { x: e.clientX, y: e.clientY };
-
-// Send updated camera to worker for re-render
-worker.postMessage({ type: 'camera', data: { camera } });
-```
-
-**Key detail:** We use `setPointerCapture()` on pointerdown so the drag continues even if the cursor leaves the canvas bounds.
-
-### 4. Zooming Around Cursor
-
-Zooming must keep the point under the cursor fixed in world space. This requires adjusting the camera offset simultaneously with the zoom level:
-
-```js
-// factor > 1 = zoom in, factor < 1 = zoom out
-const factor = e.deltaY > 0 ? 0.92 : 1.08;
-
-// mx, my = cursor position relative to canvas top-left
-const mx = e.clientX - rect.left;
-const my = e.clientY - rect.top;
-
-// The key formula: adjust offset so cursor stays at same world point
-// Before zoom: worldX = (mx - camera.x) / camera.zoom
-// After zoom:  worldX = (mx - newCameraX) / newZoom
-// Setting them equal and solving for newCameraX gives:
-camera.x = mx - (mx - camera.x) * factor;
-camera.y = my - (my - camera.y) * factor;
-camera.zoom *= factor;
-```
-
-**Math explanation:** The cursor is at screen position `(mx, my)`. Its world position is `(mx - cam.x) / zoom`. After zooming, we want the same world position to map back to the same screen position. Solving for the new camera offset gives the formula above.
-
-### 5. OffscreenCanvas + Web Worker
-
-The rendering runs entirely in a Web Worker to keep the main thread free for input events:
-
-```js
-// Main thread: transfer canvas control to worker (one-time, irreversible)
-const offscreen = canvas.transferControlToOffscreen();
-const worker = new Worker(workerBlobUrl);
-worker.postMessage({ type: 'init', data: { canvas: offscreen } }, [offscreen]);
-// The [offscreen] array marks it as a "transferable" — zero-copy handoff
-
-// Worker thread: receives the OffscreenCanvas and draws on it
-self.onmessage = (e) => {
-  if (e.data.type === 'init') {
-    ctx = e.data.data.canvas.getContext('2d');
-    // Now the worker owns this canvas — main thread cannot draw on it
-  }
-};
-```
-
-**Why blob URL:** The worker code is inlined as a JavaScript string and loaded via `URL.createObjectURL(new Blob([code]))`. This avoids cross-package file resolution issues with bundlers like Vite, where `new URL('./worker.js', import.meta.url)` doesn't work across workspace packages.
-
-**StrictMode handling:** React's StrictMode unmounts and remounts components in dev mode. Since `transferControlToOffscreen()` can only be called once per canvas element, we store the worker in a `WeakMap` keyed by the canvas DOM element, so re-mounts reuse the existing worker instead of crashing.
-
-### 6. Render Scheduling (Coalescing)
-
-Multiple camera updates can arrive between animation frames (e.g., fast mouse movement). We coalesce them into a single render:
-
-```js
-let renderScheduled = false;
-
-function scheduleRender() {
-  if (renderScheduled) return;  // Already scheduled — skip
-  renderScheduled = true;
-  requestAnimationFrame(() => {
-    renderScheduled = false;
-    render();  // Only render once with the latest state
-  });
-}
-```
-
-This prevents wasted renders when 5-10 pointermove events fire between frames.
-
-## Performance Optimizations
-
-### Spatial Grid Index
-
-Instead of checking every card against the viewport (O(n) per frame), cards are bucketed into a spatial grid at insertion time:
-
-```
-World space divided into 400x400px cells:
-
-   Cell(0,0)    Cell(1,0)    Cell(2,0)
-  ┌──────────┬──────────┬──────────┐
-  │ Card 1   │          │ Card 4   │
-  │ Card 2   │          │          │
-  ├──────────┼──────────┼──────────┤
-  │          │ Card 3   │          │
-  │          │          │ Card 5   │
-  └──────────┴──────────┴──────────┘
-   Cell(0,1)    Cell(1,1)    Cell(2,1)
-```
-
-On each frame, we compute which cells overlap the viewport and only check cards in those cells. A card spanning multiple cells is stored in all of them (with deduplication via a `seen` set).
-
-**Complexity:** O(visible_cells) instead of O(total_cards). With 2000 cards but only ~20 visible, this skips 99% of cards.
-
-### Batched Multi-Pass Rendering
-
-The naive approach sets canvas state per card (shadow, fill, stroke, font = ~15 state changes per card). Our approach batches by operation:
-
-```
-NAIVE (per card):                    OPTIMIZED (per pass):
-─────────────────                    ─────────────────────
-For each card:                       PASS 1 - All shadows:
-  set shadow  ─┐                       set shadow once
-  fill bg     ─┤ 15 state             fill ALL card rects → 1 draw call
-  clear shadow ┤ changes              clear shadow
-  stroke border┤ per card
-  fill header  ┤                     PASS 2 - All backgrounds:
-  set font 1   ┤                       (only if no shadow pass)
-  draw title   ┤                       fill ALL card rects → 1 draw call
-  set font 2   ┤
-  draw body    ┤                     PASS 3 - All borders:
-  set font 3   ┤                       stroke ALL card rects → 1 draw call
-  draw coords  ┘
-                                     PASS 4 - Headers by color:
-2000 cards = 30,000 calls              4 colors × 1 fill each → 4 draw calls
-
-                                     PASS 5 - Text by font:
-                                       3 fonts × 1 pass each → 3 draw calls
-
-                                     2000 cards = ~10 calls total
-```
-
-### Level of Detail (LOD)
-
-At low zoom levels, text is too small to read and shadows are invisible. We skip them entirely:
-
-| Zoom Level | Rendered | Why |
-|------------|----------|-----|
-| < 0.08 | Cards only (no shadows, no text) | Everything is tiny — details invisible |
-| 0.08 - 0.15 | + shadows (if < 200 visible) | Shadows are most expensive (Gaussian blur) |
-| 0.15 - 0.3 | + titles + body text | Text becomes readable |
-| > 0.3 | + coordinate labels | Full detail |
-
-### Pre-Computed Theme Colors
-
-Instead of evaluating `dark ? 'rgba(...)' : 'rgba(...)'` per card per frame, colors are computed once when the theme changes and stored in a `COLORS` object:
-
-```js
-// Computed once on theme change — not per card, not per frame
-const COLORS = {
-  cardBg: dark ? '#2a2a28' : '#ffffff',
-  bodyText: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)',
-  // ...
-};
-
-// In render loop — just reference the pre-computed value
-ctx.fillStyle = COLORS.cardBg;  // No conditional evaluation
-```
-
-### Other Optimizations
-
-- **Font constants** — `ctx.font` is set once per pass (not 3x per card). Font parsing is expensive.
-- **Grid skip** — Background grid lines are not drawn when `step < 2px` (too zoomed out to see individual lines).
-- **Throttled HUD** — `postMessage()` to main thread happens every 100ms, not every frame. Reduces serialization overhead.
-- **Coalesced renders** — Multiple `pointermove` events between frames produce a single render via `requestAnimationFrame`.
-- **ResizeObserver** — Canvas dimensions auto-update when container resizes. No polling.
+- **Spatial grid index** -- O(visible_cells) frustum culling instead of O(n)
+- **Batched rendering** -- All node backgrounds in 1 draw call, all borders in 1, all text in 1
+- **Level of Detail** -- Skip shadows when >200 visible, skip text at zoom <0.15, skip handles at zoom <0.2
+- **Path2D batching** -- Edges batched into 3 Path2D objects (normal/animated/selected) for single stroke calls
+- **Worker thread** -- All rendering off main thread via OffscreenCanvas
+- **Render coalescing** -- Multiple pointermove events produce 1 render per frame
+- **Pre-computed colors** -- Theme colors computed once on change, not per frame
 
 ## Development
 
 ```bash
 yarn install
+yarn dev          # Run all apps
+yarn dev:react    # React demo at http://localhost:3000
+yarn build        # Build everything
 ```
 
-### Run both apps
+### Demo Routes
 
-```bash
-yarn dev
-```
+| Route | Description |
+|---|---|
+| `/` | Nodes & Edges demo (with Controls, MiniMap, Background) |
+| `/cards` | Cards demo (legacy API) |
+| `/stress` | Stress test -- 2000+ cards |
+| `/stress-flow` | Stress test -- 500-5000 nodes with edges |
 
-### Run individually
+## License
 
-```bash
-yarn dev:html    # http://localhost:3001
-yarn dev:react   # http://localhost:3000
-```
-
-### Stress Test
-
-- **React**: http://localhost:3000#stress (2000 cards, buttons for 5k/10k)
-- **HTML**: http://localhost:3001/stress-test.html (2000 cards)
-
-### Build
-
-```bash
-yarn build
-```
-
-## Tech Stack
-
-- **Package**: React 17+, OffscreenCanvas, Web Worker, Spatial Grid Index
-- **HTML demo**: Vanilla JS, zero dependencies
-- **React demo**: React 19, Vite
-- **Monorepo**: Turborepo + yarn workspaces
+MIT
