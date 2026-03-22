@@ -138,11 +138,11 @@ export default function Handle({
       onPointerDown={onPointerDown}
       style={{
         position: 'absolute',
-        width: 12,
-        height: 12,
+        width: 8,
+        height: 8,
         borderRadius: '50%',
-        background: '#fff',
-        border: '2px solid #3b82f6',
+        background: '#1a192b',
+        border: 'none',
         zIndex: 10,
         cursor: isConnectable ? 'crosshair' : 'default',
         boxSizing: 'border-box',

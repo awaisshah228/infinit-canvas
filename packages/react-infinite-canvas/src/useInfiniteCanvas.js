@@ -396,6 +396,10 @@ export default function useInfiniteCanvas({
     if (dark !== undefined) workerRef.current?.postMessage({ type: 'theme', data: { dark } });
   }, [dark]);
 
+  useEffect(() => {
+    workerRef.current?.postMessage({ type: 'edgeRouting', data: { enabled: edgeRouting } });
+  }, [edgeRouting]);
+
   const sendCamera = useCallback((moveEvent = null) => {
     const cam = cameraRef.current;
     // Clamp to translateExtent if set

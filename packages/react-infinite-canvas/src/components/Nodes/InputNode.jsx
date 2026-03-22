@@ -4,23 +4,28 @@ export function InputNode({
   data,
   isConnectable,
   selected,
-  sourcePosition = 'bottom',
+  sourcePosition = 'right',
+  hideSourceHandle = false,
 }) {
   return (
     <div
-      className="ric-input-node"
+      className={`ric-input-node${selected ? ' selected' : ''}`}
       style={{
         background: '#fff',
-        border: selected ? '2px solid #3b82f6' : '1px solid #ddd',
-        borderRadius: 8,
-        padding: '10px 16px',
-        minWidth: 100,
-        fontSize: 13,
+        border: '1px solid #1a192b',
+        borderBottom: '2px solid #0041d0',
+        borderRadius: 3,
+        padding: '10px',
+        minWidth: 150,
+        fontSize: 12,
         fontFamily: 'inherit',
+        boxShadow: selected ? '0 0 0 0.5px #1a192b' : 'none',
       }}
     >
       <div className="ric-node-content">{data?.label}</div>
-      <Handle type="source" position={sourcePosition} isConnectable={isConnectable} />
+      {!hideSourceHandle && (
+        <Handle type="source" position={sourcePosition} isConnectable={isConnectable} />
+      )}
     </div>
   );
 }

@@ -4,25 +4,32 @@ export function DefaultNode({
   data,
   isConnectable,
   selected,
-  targetPosition = 'top',
-  sourcePosition = 'bottom',
+  targetPosition = 'left',
+  sourcePosition = 'right',
+  hideSourceHandle = false,
+  hideTargetHandle = false,
 }) {
   return (
     <div
-      className="ric-default-node"
+      className={`ric-default-node${selected ? ' selected' : ''}`}
       style={{
         background: '#fff',
-        border: selected ? '2px solid #3b82f6' : '1px solid #ddd',
-        borderRadius: 8,
-        padding: '10px 16px',
-        minWidth: 100,
-        fontSize: 13,
+        border: '1px solid #1a192b',
+        borderRadius: 3,
+        padding: '10px',
+        minWidth: 150,
+        fontSize: 12,
         fontFamily: 'inherit',
+        boxShadow: selected ? '0 0 0 0.5px #1a192b' : 'none',
       }}
     >
-      <Handle type="target" position={targetPosition} isConnectable={isConnectable} />
+      {!hideTargetHandle && (
+        <Handle type="target" position={targetPosition} isConnectable={isConnectable} />
+      )}
       <div className="ric-node-content">{data?.label}</div>
-      <Handle type="source" position={sourcePosition} isConnectable={isConnectable} />
+      {!hideSourceHandle && (
+        <Handle type="source" position={sourcePosition} isConnectable={isConnectable} />
+      )}
     </div>
   );
 }

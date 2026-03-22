@@ -365,6 +365,7 @@ self.onmessage = function(e) {
         edges = data.edges || [];
         dark = data.dark;
         if (data.gridSize) gridSize = data.gridSize;
+        if (data.edgeRouting !== undefined) edgeRoutingEnabled = !!data.edgeRouting;
         updateColors();
         gridDirty = true;
         nodeLookupDirty = true;
@@ -372,7 +373,7 @@ self.onmessage = function(e) {
         handleCacheDirty = true;
         edgeAdjacencyDirty = true;
         hasAnimatedEdges = edges.some(function(edge) { return edge.animated; });
-        console.log('[worker] init done — canvas:', W, 'x', H, '| cards:', cards.length, '| nodes:', nodes.length, '| edges:', edges.length);
+        console.log('[worker] init done — canvas:', W, 'x', H, '| cards:', cards.length, '| nodes:', nodes.length, '| edges:', edges.length, '| routing:', edgeRoutingEnabled);
         render();
         self.postMessage({ type: 'ready' });
         if (hasAnimatedEdges) startAnimationLoop();
@@ -463,6 +464,19 @@ self.onmessage = function(e) {
         bgColor = data.color || null;
         gridCacheDirty = true;
         scheduleRender();
+        break;
+
+      case 'edgeRouting':
+        edgeRoutingEnabled = !!data.enabled;
+        if (edgeRoutingEnabled) {
+          scheduleEdgeRouting();
+        } else {
+          // Clear existing routed points
+          for (var cri = 0; cri < edges.length; cri++) {
+            edges[cri]._routedPoints = null;
+          }
+          scheduleRender();
+        }
         break;
     }
   } catch (err) {
@@ -584,6 +598,7 @@ function getBezierMidpoint(sx, sy, tx, ty) {
 }
 
 // ── Edge routing state ──────────────────────────────────────────
+var edgeRoutingEnabled = true; // controlled via init / settings message
 var edgeRoutingDirty = false;
 var edgeRoutingScheduled = false;
 
@@ -631,6 +646,7 @@ function vSegCrossesNode(cx, y1, y2, nearby) {
 
 // Async edge routing — runs after render, sets _routedPoints, triggers re-render
 function routeEdgesAsync() {
+  if (!edgeRoutingEnabled) return;
   if (!edgeRoutingDirty || edges.length === 0 || nodes.length === 0) return;
   edgeRoutingDirty = false;
   if (nodeLookupDirty) rebuildNodeLookup();
@@ -642,8 +658,6 @@ function routeEdgesAsync() {
   for (var ei = 0; ei < edges.length; ei++) {
     var edge = edges[ei];
     if (edge._customRendered) continue;
-    var edgeType = edge.type || 'default';
-    if (edgeType === 'default' || edgeType === 'bezier' || edgeType === 'simplebezier' || edgeType === 'straight') continue;
 
     var sn = nodeLookup[edge.source];
     var tn = nodeLookup[edge.target];
@@ -754,6 +768,7 @@ function routeEdgesAsync() {
 }
 
 function scheduleEdgeRouting() {
+  if (!edgeRoutingEnabled) return;
   if (edgeRoutingScheduled) return;
   edgeRoutingScheduled = true;
   edgeRoutingDirty = true;

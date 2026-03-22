@@ -1,0 +1,50 @@
+{
+  "pages": {
+    "/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
+    ],
+    "/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/page.js"
+    ],
+    "/docs/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/docs/layout.js"
+    ],
+    "/docs/quickstart/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/docs/quickstart/page.css",
+      "static/chunks/app/docs/quickstart/page.js"
+    ],
+    "/docs/nodes/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/docs/nodes/page.css",
+      "static/chunks/app/docs/nodes/page.js"
+    ],
+    "/docs/custom-nodes/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/docs/custom-nodes/page.css",
+      "static/chunks/app/docs/custom-nodes/page.js"
+    ],
+    "/docs/edges/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/docs/edges/page.css",
+      "static/chunks/app/docs/edges/page.js"
+    ],
+    "/docs/controls/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/docs/controls/page.css",
+      "static/chunks/app/docs/controls/page.js"
+    ]
+  }
+}
