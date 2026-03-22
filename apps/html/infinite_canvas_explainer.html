@@ -1,0 +1,74 @@
+
+<style>
+  #ic-wrap { position: relative; width: 100%; height: 420px; overflow: hidden; background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); cursor: grab; user-select: none; touch-action: none; }
+  #ic-wrap.dragging { cursor: grabbing; }
+  #ic-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  #ic-info { position: absolute; bottom: 12px; left: 12px; font-size: 12px; color: var(--color-text-secondary); pointer-events: none; }
+  #ic-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--color-text-tertiary); pointer-events: none; background: var(--color-background-primary); padding: 4px 12px; border-radius: 20px; border: 0.5px solid var(--color-border-tertiary); white-space: nowrap; }
+  #ic-controls { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; }
+  #ic-controls button { font-size: 12px; padding: 4px 12px; }
+  .ic-step { margin: 12px 0 0; }
+  .ic-tabs { display: flex; gap: 0; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); overflow: hidden; width: fit-content; }
+  .ic-tab { font-size: 12px; padding: 5px 14px; cursor: pointer; border: none; background: transparent; color: var(--color-text-secondary); }
+  .ic-tab.active { background: var(--color-background-secondary); color: var(--color-text-primary); font-weight: 500; }
+  .ic-code { font-family: var(--font-mono); font-size: 11px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 14px; margin: 8px 0 0; color: var(--color-text-secondary); line-height: 1.7; white-space: pre; }
+  .hl { color: var(--color-text-info); }
+  .hl2 { color: var(--color-text-warning, #b07000); }
+</style>
+
+<div id="ic-wrap">
+  <canvas id="ic-canvas"></canvas>
+  <div id="ic-hint">Drag to pan · Scroll to zoom</div>
+  <div id="ic-info">x: 0  y: 0  zoom: 1.00x</div>
+</div>
+<div id="ic-controls">
+  <button onclick="resetView()">Reset view</button>
+  <button onclick="addCard()">Add card</button>
+  <span style="font-size:12px; color:var(--color-text-secondary); margin-left:4px">Try panning & zooming — grid extends forever</span>
+</div>
+
+<div class="ic-step">
+  <div class="ic-tabs">
+    <button class="ic-tab active" onclick="showTab(0,this)">How it works</button>
+    <button class="ic-tab" onclick="showTab(1,this)">Pan</button>
+    <button class="ic-tab" onclick="showTab(2,this)">Zoom</button>
+    <button class="ic-tab" onclick="showTab(3,this)">Worker</button>
+  </div>
+  <div id="tab0" class="ic-code"><span class="hl">// The core idea: never move content — move a camera</span>
+ctx.save();
+ctx.<span class="hl2">translate</span>(camera.x, camera.y);   <span class="hl">// pan offset</span>
+ctx.<span class="hl2">scale</span>(camera.zoom, camera.zoom); <span class="hl">// zoom level</span>
+drawEverything();   <span class="hl">// all content drawn in world space</span>
+ctx.restore();</div>
+  <div id="tab1" class="ic-code" style="display:none"><span class="hl">// Pan: accumulate pointer delta into camera offset</span>
+wrap.addEventListener(<span class="hl2">'pointermove'</span>, e => {
+  if (!dragging) return;
+  camera.x += e.clientX - lastPt.x;
+  camera.y += e.clientY - lastPt.y;
+  <span class="hl">// Send updated camera to the worker thread</span>
+  worker.postMessage({ type: 'camera', data: { camera } });
+});</div>
+  <div id="tab2" class="ic-code" style="display:none"><span class="hl">// Zoom: scale around the cursor position</span>
+wrap.addEventListener(<span class="hl2">'wheel'</span>, e => {
+  const factor = e.deltaY > 0 ? 0.92 : 1.08;
+  <span class="hl">// Adjust offset so cursor stays fixed in world space:</span>
+  camera.x = mx - (mx - camera.x) * factor;
+  camera.y = my - (my - camera.y) * factor;
+  camera.zoom *= factor;
+  worker.postMessage({ type: 'camera', data: { camera } });
+});</div>
+  <div id="tab3" class="ic-code" style="display:none"><span class="hl">// Rendering runs in a Web Worker via OffscreenCanvas</span>
+<span class="hl">// Main thread handles events only — never blocked by draws</span>
+const offscreen = canvas.<span class="hl2">transferControlToOffscreen</span>();
+const worker = new <span class="hl2">Worker</span>('canvas.worker.js');
+worker.postMessage(
+  { type: 'init', data: { canvas: offscreen } },
+  [offscreen]  <span class="hl">// zero-copy transfer</span>
+);
+<span class="hl">// Worker receives camera state and renders independently</span>
+worker.onmessage = e => {
+  info.textContent = e.data;  <span class="hl">// HUD updates from worker</span>
+};</div>
+</div>
+
+<script type="module" src="js/main.js"></script>

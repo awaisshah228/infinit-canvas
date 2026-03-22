@@ -1,0 +1,9 @@
+{
+  "name": "infinite-canvas-html",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npx serve . -l 3001",
+    "build": "mkdir -p dist/js && cp infinite_canvas_explainer.html dist/index.html && cp canvas.worker.js dist/ && cp js/*.js dist/js/"
+  }
+}

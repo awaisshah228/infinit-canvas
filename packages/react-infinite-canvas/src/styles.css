@@ -1,0 +1,64 @@
+/* react-infinite-canvas styles */
+
+.ric-wrap {
+  position: relative;
+  overflow: hidden;
+  background: #f0f0f0;
+  border-radius: 12px;
+  border: 0.5px solid #e0e0e0;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ric-wrap {
+    background: #1e1e1e;
+    border-color: #333;
+  }
+}
+
+.ric-wrap.dragging {
+  cursor: grabbing;
+}
+
+.ric-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ric-info {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  font-size: 12px;
+  font-family: monospace;
+  color: #888;
+  pointer-events: none;
+}
+
+.ric-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #999;
+  pointer-events: none;
+  background: #fafafa;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 0.5px solid #e0e0e0;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ric-hint {
+    background: #1a1a1a;
+    border-color: #333;
+    color: #666;
+  }
+}
