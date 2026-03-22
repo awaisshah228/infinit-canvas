@@ -36,6 +36,7 @@ export default function NodeToolbar({
         ...posStyle,
         ...style,
       }}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       {children}
     </div>

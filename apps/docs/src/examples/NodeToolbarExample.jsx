@@ -1,12 +1,15 @@
 'use client';
-import { useCallback } from 'react';
+import { useCallback, createContext, useContext } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background, Handle, NodeToolbar,
 } from 'react-infinite-canvas';
 import 'react-infinite-canvas/styles.css';
 
-function ToolbarNode({ data, selected }) {
+const ToolbarActionsContext = createContext({});
+
+function ToolbarNode({ id, data, selected }) {
+  const { onEdit, onDelete } = useContext(ToolbarActionsContext);
   return (
     <div style={{
       padding: 10,
@@ -27,8 +30,14 @@ function ToolbarNode({ data, selected }) {
           borderRadius: 4, padding: '3px 6px', fontSize: 11,
           boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
         }}>
-          <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11 }}>Edit</button>
-          <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, color: '#ef4444' }}>Delete</button>
+          <button
+            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11 }}
+            onClick={() => onEdit?.(id)}
+          >Edit</button>
+          <button
+            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, color: '#ef4444' }}
+            onClick={() => onDelete?.(id)}
+          >Delete</button>
         </div>
       </NodeToolbar>
     </div>
@@ -49,7 +58,7 @@ const initialEdges = [
 ];
 
 export default function NodeToolbarExample() {
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   const onConnect = useCallback(
@@ -57,19 +66,31 @@ export default function NodeToolbarExample() {
     [setEdges],
   );
 
+  const onEdit = useCallback((id) => {
+    const label = prompt('New label:');
+    if (label) setNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, label } } : n));
+  }, [setNodes]);
+
+  const onDelete = useCallback((id) => {
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+  }, [setNodes, setEdges]);
+
   return (
-    <InfiniteCanvas
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
-      fitView
-      height="350px"
-    >
-      <Controls />
-      <Background variant="dots" />
-    </InfiniteCanvas>
+    <ToolbarActionsContext.Provider value={{ onEdit, onDelete }}>
+      <InfiniteCanvas
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        fitView
+        height="350px"
+      >
+        <Controls />
+        <Background variant="dots" />
+      </InfiniteCanvas>
+    </ToolbarActionsContext.Provider>
   );
 }

@@ -76,6 +76,7 @@ export {
 // ─── Components ──────────────────────────────────────────────────
 export { default as MiniMap } from './components/MiniMap/index.jsx';
 export { default as Controls } from './components/Controls/index.jsx';
+export { ControlButton } from './components/Controls/index.jsx';
 export { default as Background } from './components/Background/index.jsx';
 export { default as Panel } from './components/Panel/index.jsx';
 
