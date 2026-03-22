@@ -460,6 +460,9 @@ export default function useInfiniteCanvas({
     workerRef.current?.postMessage({ type: 'edgeRouting', data: { enabled: edgeRouting } });
   }, [edgeRouting]);
 
+  // Throttle React viewport state updates — DOM overlays sync via RAF in InfiniteCanvas
+  const viewportRafRef = useRef(0);
+
   const sendCamera = useCallback((moveEvent = null) => {
     const cam = cameraRef.current;
     // Clamp to translateExtent if set
@@ -477,9 +480,13 @@ export default function useInfiniteCanvas({
     }
     workerRef.current?.postMessage({ type: 'camera', data: { camera: { ...cam } } });
     const vp = { x: cam.x, y: cam.y, zoom: cam.zoom };
-    setViewport(vp);
     refs.current.onMove?.(moveEvent, vp);
     for (const cb of viewportListeners) cb(vp);
+    // Debounce React state update to avoid per-frame re-renders during continuous pan/zoom
+    cancelAnimationFrame(viewportRafRef.current);
+    viewportRafRef.current = requestAnimationFrame(() => {
+      setViewport({ x: cam.x, y: cam.y, zoom: cam.zoom });
+    });
   }, [viewportListeners, translateExtent]);
 
   const sendConnecting = useCallback(() => {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import useInfiniteCanvas from './useInfiniteCanvas.js';
 import InfiniteCanvasContext from './context/InfiniteCanvasContext.js';
 import NodeWrapper from './components/NodeWrapper/index.jsx';
@@ -182,9 +182,28 @@ export default function InfiniteCanvas({
     get edges() { return edges; },
   }), [baseStore, nodes, edges]);
 
-  // Camera transform for DOM/SVG overlays
-  const cam = baseStore.cameraRef.current;
-  const transformStyle = `translate(${cam.x}px, ${cam.y}px) scale(${cam.zoom})`;
+  // Refs for direct DOM transform updates (bypass React re-renders during pan/zoom)
+  const nodesOverlayRef = useRef(null);
+  const edgesOverlayRef = useRef(null);
+  const edgeLabelOverlayRef = useRef(null);
+  const viewportPortalOverlayRef = useRef(null);
+
+  // Sync overlay transforms directly from cameraRef on every animation frame
+  useEffect(() => {
+    let rafId;
+    const sync = () => {
+      const cam = baseStore.cameraRef.current;
+      const css = `translate(${cam.x}px, ${cam.y}px) scale(${cam.zoom})`;
+      const svg = `translate(${cam.x}, ${cam.y}) scale(${cam.zoom})`;
+      if (nodesOverlayRef.current) nodesOverlayRef.current.style.transform = css;
+      if (edgesOverlayRef.current) edgesOverlayRef.current.setAttribute('transform', svg);
+      if (edgeLabelOverlayRef.current) edgeLabelOverlayRef.current.style.transform = css;
+      if (viewportPortalOverlayRef.current) viewportPortalOverlayRef.current.style.transform = css;
+      rafId = requestAnimationFrame(sync);
+    };
+    rafId = requestAnimationFrame(sync);
+    return () => cancelAnimationFrame(rafId);
+  }, [baseStore]);
 
   const hasCustomNodes = customNodes.length > 0;
   const hasCustomEdges = customEdges.length > 0;
@@ -224,7 +243,7 @@ export default function InfiniteCanvas({
               overflow: 'visible',
             }}
           >
-            <g transform={`translate(${cam.x}, ${cam.y}) scale(${cam.zoom})`}>
+            <g ref={edgesOverlayRef}>
               {customEdges.map((edge) => (
                 <EdgeWrapper
                   key={edge.id}
@@ -241,6 +260,7 @@ export default function InfiniteCanvas({
         {/* DOM overlay — custom node components (transforms with camera) */}
         {hasCustomNodes && (
           <div
+            ref={nodesOverlayRef}
             className="ric-nodes-overlay"
             style={{
               position: 'absolute',
@@ -249,7 +269,6 @@ export default function InfiniteCanvas({
               width: 0,
               height: 0,
               transformOrigin: '0 0',
-              transform: transformStyle,
               pointerEvents: 'none',
             }}
           >
@@ -265,7 +284,7 @@ export default function InfiniteCanvas({
 
         {/* Edge label container — EdgeLabelRenderer portals into this */}
         <div
-          ref={edgeLabelContainerRef}
+          ref={(el) => { edgeLabelContainerRef.current = el; edgeLabelOverlayRef.current = el; }}
           className="ric-edge-labels"
           style={{
             position: 'absolute',
@@ -274,7 +293,6 @@ export default function InfiniteCanvas({
             width: 0,
             height: 0,
             transformOrigin: '0 0',
-            transform: transformStyle,
             pointerEvents: 'none',
             zIndex: 5,
           }}
@@ -282,7 +300,7 @@ export default function InfiniteCanvas({
 
         {/* Viewport portal container */}
         <div
-          ref={viewportPortalRef}
+          ref={(el) => { viewportPortalRef.current = el; viewportPortalOverlayRef.current = el; }}
           className="ric-viewport-portal"
           style={{
             position: 'absolute',
@@ -291,7 +309,6 @@ export default function InfiniteCanvas({
             width: 0,
             height: 0,
             transformOrigin: '0 0',
-            transform: transformStyle,
             pointerEvents: 'none',
             zIndex: 6,
           }}
