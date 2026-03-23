@@ -463,9 +463,26 @@ self.onmessage = function(e) {
         }
         activeDragCount = Math.max(0, activeDragCount + dragDelta);
         handleCacheDirty = true;
+        // Clear stale routed points for edges connected to dragged nodes so the
+        // inline smoothstep/step renderer draws them at the correct position.
+        if (edgeRoutingEnabled) {
+          for (var uri = 0; uri < updates.length; uri++) {
+            var uid = updates[uri].id;
+            for (var uei = 0; uei < edges.length; uei++) {
+              if (edges[uei].source === uid || edges[uei].target === uid) {
+                edges[uei]._routedPoints = null;
+              }
+            }
+          }
+        }
         // Don't rebuild spatial grid for small position updates (drag).
         // The node stays in roughly the same viewport area — grid rebuild is O(n) and kills FPS.
         if (updates.length > 10) nodeSpatialDirty = true;
+        // Re-route edges once drag ends so routed paths are recomputed at final position
+        if (edgeRoutingEnabled && activeDragCount === 0 && dragDelta < 0) {
+          nodeSpatialDirty = true;
+          scheduleEdgeRouting();
+        }
         scheduleRender();
         break;
 
