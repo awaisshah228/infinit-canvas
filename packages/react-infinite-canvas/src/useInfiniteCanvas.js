@@ -134,6 +134,12 @@ export default function useInfiniteCanvas({
   const cardsRef = useRef([...cards]);
   const nodesRef = useRef([...nodes]);
   const edgesRef = useRef([...edges]);
+  const nodeLookupRef = useRef(null); // id → node, rebuilt when nodesRef changes
+  if (!nodeLookupRef.current) {
+    const map = new Map();
+    for (const n of nodesRef.current) map.set(n.id, n);
+    nodeLookupRef.current = map;
+  }
   const handleRegistryRef = useRef(new Map()); // key: `${nodeId}__${handleId||type}` → { nodeId, id, type, position, x, y }
   const draggingRef = useRef(false);
   const lastPtRef = useRef(null);
@@ -311,6 +317,7 @@ export default function useInfiniteCanvas({
       for (const n of nodesRef.current) {
         if (oldPositions[n.id]) n.position = oldPositions[n.id];
       }
+      { const m = nodeLookupRef.current; m.clear(); for (const n of nodesRef.current) m.set(n.id, n); }
       resolvedNodesRef.current = resolveAbsolutePositions(nodesRef.current);
       // Still sync to worker so selection/other state changes are reflected
       const enriched = injectRegisteredHandles(resolvedNodesRef.current);
@@ -319,6 +326,7 @@ export default function useInfiniteCanvas({
     }
 
     nodesRef.current = [...nodes];
+    { const m = nodeLookupRef.current; m.clear(); for (const n of nodesRef.current) m.set(n.id, n); }
     const resolved = resolveAbsolutePositions(nodes);
     resolvedNodesRef.current = resolved;
     // Canvas worker handles routing internally — just send nodes (with any registered handles)
@@ -434,15 +442,12 @@ export default function useInfiniteCanvas({
   const findEdgeAt = useCallback((wx, wy) => {
     const cam = cameraRef.current;
     const hitDist = 8 / cam.zoom; // 8 screen pixels
-    // Build a quick lookup map to avoid O(n) find per edge
-    const nds = nodesRef.current;
-    const lookup = {};
-    for (let i = 0; i < nds.length; i++) lookup[nds[i].id] = nds[i];
+    const lookup = nodeLookupRef.current;
 
     for (let i = edgesRef.current.length - 1; i >= 0; i--) {
       const edge = edgesRef.current[i];
-      const srcNode = lookup[edge.source];
-      const tgtNode = lookup[edge.target];
+      const srcNode = lookup.get(edge.source);
+      const tgtNode = lookup.get(edge.target);
       if (!srcNode || !tgtNode) continue;
 
       const srcW = srcNode.width || DEFAULT_NODE_WIDTH;
@@ -901,20 +906,21 @@ export default function useInfiniteCanvas({
 
       // Update nodesRef in-place (no React state update — avoids 5000-node reconciliation)
       const workerUpdates = [];
+      const lookup = nodeLookupRef.current;
       for (const u of posUpdates) {
-        const n = nodesRef.current.find(nd => nd.id === u.id);
+        const n = lookup.get(u.id);
         if (n) {
           n.position = u.position;
           n.dragging = true;
           // Compute absolute position for child nodes with parentId
           let absPos = u.position;
           if (n.parentId) {
-            let parent = nodesRef.current.find(nd => nd.id === n.parentId);
+            let parent = lookup.get(n.parentId);
             let absX = u.position.x, absY = u.position.y;
             while (parent) {
               absX += parent.position.x;
               absY += parent.position.y;
-              parent = parent.parentId ? nodesRef.current.find(nd => nd.id === parent.parentId) : null;
+              parent = parent.parentId ? lookup.get(parent.parentId) : null;
             }
             absPos = { x: absX, y: absY };
           }
@@ -934,12 +940,12 @@ export default function useInfiniteCanvas({
       const draggedIds = new Set(posUpdates.map(u => u.id));
       for (const n of nodesRef.current) {
         if (n.parentId && draggedIds.has(n.parentId) && !draggedIds.has(n.id)) {
-          let parent = nodesRef.current.find(nd => nd.id === n.parentId);
+          let parent = lookup.get(n.parentId);
           let absX = n.position.x, absY = n.position.y;
           while (parent) {
             absX += parent.position.x;
             absY += parent.position.y;
-            parent = parent.parentId ? nodesRef.current.find(nd => nd.id === parent.parentId) : null;
+            parent = parent.parentId ? lookup.get(parent.parentId) : null;
           }
           workerUpdates.push({
             id: n.id,
@@ -979,11 +985,16 @@ export default function useInfiniteCanvas({
         }
       }
 
-      const node = nodesRef.current.find((n) => n.id === drag.id);
+      const node = lookup.get(drag.id);
       if (node) onNodeDragRef.current?.(e, node);
       // Fire selection drag when dragging multiple selected nodes
       if (drag.selectedStarts.length > 0) {
-        const selectedNodes = nodesRef.current.filter((n) => n.selected);
+        const selectedNodes = [];
+        for (const s of drag.selectedStarts) {
+          const sn = lookup.get(s.id);
+          if (sn) selectedNodes.push(sn);
+        }
+        if (node) selectedNodes.push(node);
         refs.current.onSelectionDrag?.(e, selectedNodes);
       }
       return;
@@ -1244,10 +1255,15 @@ export default function useInfiniteCanvas({
     let lastHoverNode = null;
     let lastHoverEdge = null;
 
+    let lastHitTestTime = 0;
     const onMouseMove = (e) => {
       refs.current.onPaneMouseMove?.(e);
       // Skip expensive hit testing during active pan/drag to keep panning smooth
       if (draggingRef.current || dragNodeRef.current || connectingRef.current || selectionBoxRef.current) return;
+      // Throttle hit testing to ~30fps to avoid O(n) scans on every mousemove
+      const now = performance.now();
+      if (now - lastHitTestTime < 32) return;
+      lastHitTestTime = now;
       const world = screenToWorld(e.clientX, e.clientY);
       const node = findNodeAt(world.x, world.y);
       if (node !== lastHoverNode) {
@@ -1361,7 +1377,7 @@ export default function useInfiniteCanvas({
     refs.current.onInit?.({
       getNodes: () => [...nodesRef.current],
       getEdges: () => [...edgesRef.current],
-      getNode: (id) => nodesRef.current.find((n) => n.id === id),
+      getNode: (id) => nodeLookupRef.current.get(id),
       getEdge: (id) => edgesRef.current.find((e) => e.id === id),
       getViewport: () => ({ ...cameraRef.current }),
       getZoom: () => cameraRef.current.zoom,
