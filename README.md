@@ -49,15 +49,15 @@ function App() {
 
 ## React Flow Compatibility
 
-This package mirrors the React Flow API so migration is straightforward. Here's what's supported, what's different, and what's missing.
+This package mirrors the React Flow API so migration is straightforward. Here's what's supported and what's different.
 
 ### Architecture Difference
 
 | | React Flow | react-infinite-canvas |
 |---|---|---|
 | Rendering | DOM (React divs + SVG) | OffscreenCanvas + Web Worker |
-| Custom nodes | Any React component | Canvas-drawn (no DOM inside nodes) |
-| Custom edges | SVG path components | Canvas-drawn curves |
+| Custom nodes | Any React component | Hybrid: canvas-drawn + DOM overlay for custom `nodeTypes` |
+| Custom edges | SVG path components | Hybrid: canvas-drawn + SVG overlay for custom `edgeTypes` |
 | Max nodes (60fps) | ~500 | 5000+ |
 | Main thread | Blocked during render | Always free |
 | Store | Zustand | React context + refs |
@@ -75,14 +75,35 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
   onEdgesChange={onEdgesChange}
   onConnect={onConnect}
 
+  // Node types & edge types (custom React components)
+  nodeTypes={nodeTypes}
+  edgeTypes={edgeTypes}
+
   // Node interaction
   onNodeClick={onNodeClick}
+  onNodeDoubleClick={onNodeDoubleClick}
+  onNodeContextMenu={onNodeContextMenu}
   onNodeDragStart={onNodeDragStart}
   onNodeDrag={onNodeDrag}
   onNodeDragStop={onNodeDragStop}
   onEdgeClick={onEdgeClick}
+  onEdgeDoubleClick={onEdgeDoubleClick}
   onPaneClick={onPaneClick}
   onSelectionChange={onSelectionChange}
+
+  // Connection events
+  onConnectStart={onConnectStart}
+  onConnectEnd={onConnectEnd}
+  isValidConnection={isValidConnection}
+
+  // Viewport events
+  onMoveStart={onMoveStart}
+  onMove={onMove}
+  onMoveEnd={onMoveEnd}
+  onInit={onInit}
+
+  // Delete
+  onDelete={onDelete}
 
   // Behavior
   nodesDraggable={true}
@@ -90,6 +111,22 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
   elementsSelectable={true}
   multiSelectionKeyCode="Shift"
   selectionOnDrag={false}
+  selectionMode="full"
+  snapToGrid={false}
+  edgesReconnectable={true}
+  autoPanOnNodeDrag={true}
+  panOnScroll={false}
+  panActivationKeyCode="Space"
+  zoomOnDoubleClick={true}
+  zoomOnPinch={true}
+  fitView={false}
+  translateExtent={[[-Infinity, -Infinity], [Infinity, Infinity]]}
+  deleteKeyCode="Delete"
+  connectionRadius={20}
+  connectionLineType="bezier"
+  defaultEdgeOptions={{}}
+  colorMode="light"
+  nodeOrigin={[0, 0]}
 
   // Appearance
   dark={false}
@@ -111,7 +148,7 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 |---|---|---|---|
 | `useNodesState` | Yes | Yes | Same API |
 | `useEdgesState` | Yes | Yes | Same API |
-| `useReactFlow` | Yes | Yes | `fitView`, `zoomIn/Out/To`, `getNodes/setNodes`, `addNodes/addEdges`, `deleteElements`, `screenToFlowPosition`, `flowToScreenPosition`, `setCenter`, `getViewport/setViewport` |
+| `useReactFlow` | Yes | Yes | `fitView`, `fitBounds`, `zoomIn/Out/To`, `getNodes/setNodes`, `getNode/getEdge`, `addNodes/addEdges`, `deleteElements`, `updateNodeData`, `screenToFlowPosition`, `flowToScreenPosition`, `setCenter`, `getViewport/setViewport`, `toObject` |
 | `useNodes` | Yes | Yes | Read current nodes |
 | `useEdges` | Yes | Yes | Read current edges |
 | `useViewport` | Yes | Yes | Read `{ x, y, zoom }` |
@@ -122,6 +159,14 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 | `useOnViewportChange` | Yes | Yes | Subscribe to viewport changes |
 | `useOnSelectionChange` | Yes | Yes | Subscribe to selection changes |
 | `useKeyPress` | Yes | Yes | Track key state |
+| `useUpdateNodeInternals` | Yes | Yes | Force recalculate node handles/bounds |
+| `useNodesInitialized` | Yes | Yes | Detect when nodes are measured |
+| `useInternalNode` | Yes | Yes | Access internal node data |
+| `useStore` / `useStoreApi` | Yes | Yes | Direct store access (selector pattern) |
+| `useNodeId` | Yes | Yes | Current node ID inside custom node component |
+| `useUndoRedo` | No | Yes | Undo/redo history management |
+| `useOnNodesChangeMiddleware` | No | Yes | Intercept & transform node changes |
+| `useOnEdgesChangeMiddleware` | No | Yes | Intercept & transform edge changes |
 
 #### Utilities
 
@@ -135,6 +180,19 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 | `getIncomers` / `getOutgoers` | Yes | Yes |
 | `getNodesBounds` | Yes | Yes |
 | `getViewportForBounds` | Yes | Yes |
+| `getBezierPath` | Yes | Yes |
+| `getSmoothStepPath` | Yes | Yes |
+| `getStraightPath` | Yes | Yes |
+| `getSimpleBezierPath` | Yes | Yes |
+| `getEdgeCenter` / `getBezierEdgeCenter` | Yes | Yes |
+| `getNodesInside` | Yes | Yes |
+| `snapPosition` | Yes | Yes |
+| `clampPosition` | Yes | Yes |
+| `getNodeDimensions` | Yes | Yes |
+| `reconnectEdge` | Yes | Yes |
+| `computeRoutedEdges` | No | Yes |
+| `routeSinglePath` | No | Yes |
+| `buildObstacles` | No | Yes |
 
 #### Components
 
@@ -144,6 +202,35 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 | `MiniMap` | Yes | Yes | Overview with viewport indicator |
 | `Background` | Yes | Yes | `lines`, `dots`, `cross` variants |
 | `Panel` | Yes | Yes | Positioned overlays |
+| `Handle` | Yes | Yes | Declarative connection points in custom nodes |
+| `NodeResizer` | Yes | Yes | Drag-to-resize nodes |
+| `NodeToolbar` | Yes | Yes | Floating toolbar attached to nodes |
+| `EdgeToolbar` | Yes | Yes | Floating toolbar attached to edges |
+| `EdgeLabelRenderer` | Yes | Yes | Portal-based edge label rendering |
+| `ViewportPortal` | Yes | Yes | Render React elements at viewport coordinates |
+| `ConnectionLine` | Yes | Yes | Connection line during handle drag |
+| `SelectionBox` | Yes | Yes | Selection rectangle UI |
+
+#### Built-in Edge Components
+
+| Component | React Flow | Us |
+|---|---|---|
+| `BaseEdge` | Yes | Yes |
+| `BezierEdge` | Yes | Yes |
+| `StraightEdge` | Yes | Yes |
+| `SmoothStepEdge` | Yes | Yes |
+| `StepEdge` | Yes | Yes |
+| `SimpleBezierEdge` | Yes | Yes |
+| `EdgeText` | Yes | Yes |
+
+#### Built-in Node Components
+
+| Component | React Flow | Us |
+|---|---|---|
+| `DefaultNode` | Yes | Yes |
+| `InputNode` | Yes | Yes |
+| `OutputNode` | Yes | Yes |
+| `GroupNode` | Yes | Yes |
 
 #### Interaction Features
 
@@ -157,109 +244,43 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 | Delete selected (Delete key) | Yes | Yes |
 | Select all (Ctrl+A) | Yes | Yes |
 | Connection by handle drag | Yes | Yes |
-| Custom handle positions | Yes | Yes (top/bottom/left/right or x,y) |
+| Connection validation | Yes | Yes |
+| Custom handle positions | Yes | Yes |
 | Multiple handles per node | Yes | Yes |
 | Edge types (bezier/straight/step/smoothstep) | Yes | Yes |
+| Edge reconnect | Yes | Yes |
 | Animated edges | Yes | Yes |
 | Edge labels | Yes | Yes |
+| Edge routing (obstacle avoidance) | No | Yes |
 | Frustum culling | Yes | Yes (spatial grid) |
 | Zoom around cursor | Yes | Yes |
+| Zoom on double-click | Yes | Yes |
+| Pinch to zoom | Yes | Yes |
+| Snap to grid | Yes | Yes |
+| Auto-pan on drag | Yes | Yes |
+| Pan boundaries | Yes | Yes |
+| Fit view on init | Yes | Yes |
+| Pan on scroll | Yes | Yes |
+| Selection mode (Full/Partial) | Yes | Yes |
+| Undo/redo | No | Yes |
 
 ---
 
 ### What's Missing (vs React Flow)
 
-#### High Impact -- Architecture Gap
-
-These require a **hybrid DOM + canvas approach** to implement:
-
-| Feature | Description | Why Missing |
-|---|---|---|
-| **Custom node components** (`nodeTypes`) | Render React inside nodes (buttons, inputs, forms) | Nodes are canvas-drawn, not DOM elements |
-| **Custom edge components** (`edgeTypes`) | Render custom SVG/React along edges | Edges are canvas-drawn |
-| **`<Handle>` component** | Declarative connection points in custom nodes | Tied to DOM-based custom nodes |
-| **`NodeResizer`** | Drag-to-resize nodes | Needs DOM handles |
-| **`NodeToolbar`** / **`EdgeToolbar`** | Floating toolbars attached to nodes/edges | Needs DOM overlay positioning |
-| **`EdgeLabelRenderer`** | Portal-based edge label rendering | Needs DOM portal |
-| **`ViewportPortal`** | Render React elements at viewport coordinates | Needs DOM overlay |
-
-#### Medium Impact -- Missing Features
+Only a few features remain unimplemented:
 
 | Feature | React Flow Prop/API | Status |
 |---|---|---|
-| Snap to grid | `snapToGrid`, `snapGrid` | Missing |
-| Edge reconnect | `edgesReconnectable`, `onReconnect` | Missing |
+| `noDragClassName` | CSS class to prevent drag on specific elements | Missing |
+| `noPanClassName` | CSS class to prevent pan on specific elements | Missing |
 | Sub-flows / parent nodes | `parentId`, `extent: 'parent'` | Missing |
-| Connection validation | `isValidConnection` | Missing |
-| Connection mode | `connectionMode` (Strict/Loose) | Missing |
 | Click-to-connect | `connectOnClick` | Missing |
-| Auto-pan on drag | `autoPanOnNodeDrag`, `autoPanOnConnect` | Missing |
-| Pan boundaries | `translateExtent` | Missing |
-| Fit view on init | `fitView` prop | Missing (use `useReactFlow().fitView()`) |
-| Node extent/constraints | `nodeExtent`, `nodeOrigin` | Missing |
-| Selection mode | `selectionMode` (Full/Partial) | Missing |
+| Connection mode | `connectionMode` (Strict/Loose) | Missing |
 | Elevate on select | `elevateNodesOnSelect` | Missing |
-| Pan activation key | `panActivationKeyCode` (Space) | Missing |
-| Zoom on double-click | `zoomOnDoubleClick` | Missing |
-| Pinch to zoom | `zoomOnPinch` | Missing |
-
-#### Missing Event Handlers
-
-| Event | Status |
-|---|---|
-| `onNodeDoubleClick` | Missing |
-| `onNodeMouseEnter` / `Move` / `Leave` | Missing |
-| `onNodeContextMenu` | Missing |
-| `onEdgeDoubleClick` | Missing |
-| `onEdgeMouseEnter` / `Move` / `Leave` | Missing |
-| `onEdgeContextMenu` | Missing |
-| `onConnectStart` / `onConnectEnd` | Missing |
-| `onPaneContextMenu` | Missing |
-| `onPaneMouseEnter` / `Move` / `Leave` | Missing |
-| `onMoveStart` / `onMove` / `onMoveEnd` | Missing |
-| `onInit` | Missing |
-| `onDelete` / `onBeforeDelete` | Missing |
-| `onReconnect` / `onReconnectStart` / `End` | Missing |
-| `onError` | Missing |
-| `onSelectionDragStart` / `Drag` / `Stop` | Missing |
-
-#### Missing Hooks
-
-| Hook | What it does |
-|---|---|
-| `useUpdateNodeInternals` | Force recalculate node handles/bounds |
-| `useNodesInitialized` | Detect when nodes are measured |
-| `useInternalNode` | Access internal node data (absolute position) |
-| `useStore` / `useStoreApi` | Direct store access |
-
-#### Missing Utilities
-
-| Utility | What it does |
-|---|---|
-| `getBezierPath` | Generate SVG path string for bezier edges |
-| `getSmoothStepPath` | Generate SVG path for smooth step edges |
-| `getStraightPath` | Generate SVG path for straight edges |
-| `getSimpleBezierPath` | Simplified bezier path |
-| `getEdgeCenter` | Center point of any edge |
-| `getNodesInside` | Nodes within a rectangle |
-| `snapPosition` | Snap position to grid |
-| `clampPosition` | Clamp to extent boundaries |
-| `getNodeDimensions` | Get node width/height with fallbacks |
-
-#### Missing Props
-
-| Prop | What it does |
-|---|---|
-| `connectionRadius` | Hit radius for connection drops |
-| `connectionLineType` | Style of connection line |
-| `connectionLineComponent` | Custom connection line |
-| `deleteKeyCode` | Configurable delete key |
-| `noDragClassName` | CSS class to prevent drag |
-| `noPanClassName` | CSS class to prevent pan |
-| `panOnScroll` / `panOnScrollMode` | Pan instead of zoom on scroll |
-| `defaultEdgeOptions` | Default styling for new edges |
-| `defaultMarkerColor` | Arrow marker color |
-| `colorMode` | Light/dark toggle |
+| `onBeforeDelete` | Pre-delete validation callback | Missing |
+| `onError` | Error boundary callback | Missing |
+| `onSelectionDragStart` / `Drag` / `Stop` | Selection drag events | Missing |
 
 ---
 
@@ -276,16 +297,33 @@ src/
     Controls/index.jsx              # Zoom in/out + fit view buttons
     MiniMap/index.jsx               # Overview minimap with viewport rect
     Panel/index.jsx                 # Positioned overlay panel
+    Handle/index.jsx                # Connection handle component
+    NodeResizer/index.jsx           # Drag-to-resize component
+    NodeToolbar/index.jsx           # Floating node toolbar
+    EdgeToolbar/index.jsx           # Floating edge toolbar
+    EdgeLabelRenderer/index.jsx     # Portal-based edge labels
+    ViewportPortal/index.jsx        # Viewport-positioned React elements
+    ConnectionLine/index.jsx        # Connection line during drag
+    SelectionBox/index.jsx          # Selection rectangle
+    Nodes/                          # DefaultNode, InputNode, OutputNode, GroupNode
+    Edges/                          # BezierEdge, StraightEdge, SmoothStepEdge, StepEdge, etc.
+    NodeWrapper/index.jsx           # Wraps custom node components
+    EdgeWrapper/index.jsx           # Wraps custom edge components
 
   context/
     InfiniteCanvasContext.js         # React context for store (used by hooks)
+    NodeIdContext.js                 # Node ID context for custom nodes
 
   hooks/
     index.js                        # useReactFlow, useNodes, useEdges,
                                     # useViewport, useConnection, useNodesData,
                                     # useNodeConnections, useHandleConnections,
                                     # useOnViewportChange, useOnSelectionChange,
-                                    # useKeyPress
+                                    # useKeyPress, useUpdateNodeInternals,
+                                    # useNodesInitialized, useInternalNode,
+                                    # useStore, useStoreApi, useNodeId,
+                                    # useUndoRedo, useOnNodesChangeMiddleware,
+                                    # useOnEdgesChangeMiddleware
     useNodesState.js                # useState + onNodesChange helper
     useEdgesState.js                # useState + onEdgesChange helper
 
@@ -293,7 +331,13 @@ src/
     changes.js                      # applyNodeChanges, applyEdgeChanges, addEdge
     graph.js                        # isNode, isEdge, getConnectedEdges,
                                     # getIncomers, getOutgoers, getNodesBounds,
-                                    # getViewportForBounds
+                                    # getViewportForBounds, getNodesInside,
+                                    # snapPosition, clampPosition, getNodeDimensions
+    paths.js                        # getBezierPath, getSmoothStepPath,
+                                    # getStraightPath, getSimpleBezierPath,
+                                    # getEdgeCenter, reconnectEdge
+    edgeRouter.js                   # computeRoutedEdges, routeSinglePath,
+                                    # buildObstacles (obstacle avoidance)
 
   worker/
     canvas.worker.js                # OffscreenCanvas renderer (grid, nodes,
@@ -336,6 +380,9 @@ onHudUpdate callback  <──postMessage──  HUD data (throttled to 100ms)
 - **Worker thread** -- All rendering off main thread via OffscreenCanvas
 - **Render coalescing** -- Multiple pointermove events produce 1 render per frame
 - **Pre-computed colors** -- Theme colors computed once on change, not per frame
+- **Node virtualization** -- Only visible custom nodes are mounted in React DOM
+- **Edge adjacency index** -- Only process edges connected to visible nodes
+- **Handle caching** -- Compute handle positions once per frame per node
 
 ## Development
 
