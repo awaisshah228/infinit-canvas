@@ -115,12 +115,27 @@ export default function StressTestFlow() {
     pendingCountRef.current = null;
   }, []);
 
+  const shufflePositions = useCallback(() => {
+    setNodes((prev) => {
+      const totalW = COLS * (NODE_W + GAP_X);
+      const totalH = Math.ceil(prev.length / COLS) * (NODE_H + GAP_Y);
+      return prev.map((node) => ({
+        ...node,
+        position: {
+          x: Math.random() * totalW,
+          y: Math.random() * totalH,
+        },
+      }));
+    });
+  }, [setNodes]);
+
   const onHudUpdate = useCallback((data) => setHud(data), []);
 
   return (
     <div style={{ padding: 'max(8px, env(safe-area-inset-left, 8px))' }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
         <button onClick={() => addMore(100)} style={btnStyle} disabled={loading}>+ Add 100</button>
+        <button onClick={() => shufflePositions()} style={btnStyle} disabled={loading}>Shuffle positions</button>
         <span style={{ color: '#ccc' }}>|</span>
         <button onClick={() => handleSetCount(200)} style={btnStyle} disabled={loading}>200</button>
         <button onClick={() => handleSetCount(500)} style={btnStyle} disabled={loading}>500</button>
