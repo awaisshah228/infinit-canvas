@@ -767,7 +767,6 @@ function routeEdgesAsync() {
     var tn = nodeLookup[edge.target];
     if (!sn || !tn || sn.hidden || tn.hidden) continue;
 
-
     var sh = findEdgeHandle(sn, 'source', edge.sourceHandle);
     var th = findEdgeHandle(tn, 'target', edge.targetHandle);
     var srcHDir = sh.position || 'right';

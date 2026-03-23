@@ -168,9 +168,18 @@ export default function InfiniteCanvas({
   // Spatial promotion is added via RAF effect after baseStore is initialized.
   const [spatialIds, setSpatialIds] = useState(() => new Set());
   const prevPromotedRef = useRef(new Set());
+  const initialPromotedRef = useRef(true);
   const immediatePromotedIds = useMemo(() => {
     const ids = new Set(spatialIds);
     for (const id of pinnedNodeIds) ids.add(id);
+    // On initial render (spatialIds empty), promote all custom nodes so Handle
+    // components mount and register handle positions before the first worker frame.
+    // After spatial viewport check populates spatialIds, this falls back to normal.
+    if (initialPromotedRef.current && spatialIds.size === 0) {
+      for (const n of allCustomNodes) ids.add(n.id);
+    } else {
+      initialPromotedRef.current = false;
+    }
     for (const n of allCustomNodes) {
       if (n.selected || n.dragging) ids.add(n.id);
     }

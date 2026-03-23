@@ -46,9 +46,16 @@ function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
     }
   }
 
-  // 4. Final fallback
-  if (handleType === 'source') return { x: pos.x + nw, y: pos.y + nh / 2, position: 'right' };
-  return { x: pos.x, y: pos.y + nh / 2, position: 'left' };
+  // 4. Final fallback — respect node's sourcePosition / targetPosition
+  const fallbackPos = handleType === 'source'
+    ? (node.sourcePosition || 'right')
+    : (node.targetPosition || 'left');
+  switch (fallbackPos) {
+    case 'top': return { x: pos.x + nw / 2, y: pos.y, position: 'top' };
+    case 'bottom': return { x: pos.x + nw / 2, y: pos.y + nh, position: 'bottom' };
+    case 'left': return { x: pos.x, y: pos.y + nh / 2, position: 'left' };
+    default: return { x: pos.x + nw, y: pos.y + nh / 2, position: 'right' };
+  }
 }
 
 function shiftPos(val, shift, position) {
@@ -200,6 +207,16 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
   }, [isDragging]);
+
+  // Re-render once after mount so edges pick up handle positions
+  // registered by Handle's useLayoutEffect (which fires after EdgeWrapper's first render)
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      requestAnimationFrame(() => forceRender());
+    }
+  }, []);
 
   // Always prefer the mutable handle registry for latest positions
   const handleRegistry = s.handleRegistryRef?.current;

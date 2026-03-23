@@ -116,6 +116,14 @@ function Handle({
     }
 
     registry.set(key, { nodeId, id: id || null, type, position, x: offset.x, y: offset.y });
+
+    // Also set sourcePosition/targetPosition on the node in nodesRef directly.
+    // This ensures the worker has correct handle directions on the very first frame,
+    // before the async registry sync fires.
+    if (node) {
+      if (type === 'source') node.sourcePosition = position;
+      if (type === 'target') node.targetPosition = position;
+    }
   }, [nodeId, id, type, position]);
 
   // Register shared ResizeObserver + schedule initial sync
