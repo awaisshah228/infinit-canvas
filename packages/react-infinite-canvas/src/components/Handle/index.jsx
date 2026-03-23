@@ -116,22 +116,24 @@ function Handle({
     const nw = node?.width || node?.measured?.width;
     const nh = node?.height || node?.measured?.height;
 
-    let offset;
-    // Always prefer DOM measurement so handles at custom CSS positions
-    // (e.g. multiple handles on the same side) get their actual coordinates.
-    if (handleRef.current) {
-      offset = measureHandleOffset(handleRef.current, s.cameraRef?.current?.zoom);
-    }
-
-    // If DOM measurement failed (e.g. element not laid out yet during React Strict Mode
-    // double-invocation), preserve existing cached position if available.
+    // If a valid cached position already exists (from initial mount at zoom=1),
+    // skip DOM re-measurement — at low zoom, sub-pixel handles produce imprecise
+    // getBoundingClientRect values that corrupt the cached offset when divided by zoom.
     const existing = registry.get(key);
-    if (!offset && existing && existing.x !== undefined && existing.y !== undefined) {
-      // Just update the el reference, keep cached x/y
+    if (existing && existing.x !== undefined && existing.y !== undefined) {
       existing.el = handleRef.current;
+      // Still update sourcePosition/targetPosition on the node
+      if (node) {
+        if (type === 'source') node.sourcePosition = position;
+        if (type === 'target') node.targetPosition = position;
+      }
       return;
     }
 
+    let offset;
+    if (handleRef.current) {
+      offset = measureHandleOffset(handleRef.current, s.cameraRef?.current?.zoom);
+    }
     if (!offset) {
       offset = getPositionOffset(position, nw || 160, nh || 60);
     }
