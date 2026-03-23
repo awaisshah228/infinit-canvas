@@ -1243,12 +1243,65 @@ export default function useInfiniteCanvas({
     refs.current.onInit?.({
       getNodes: () => [...nodesRef.current],
       getEdges: () => [...edgesRef.current],
+      getNode: (id) => nodesRef.current.find((n) => n.id === id),
+      getEdge: (id) => edgesRef.current.find((e) => e.id === id),
       getViewport: () => ({ ...cameraRef.current }),
+      getZoom: () => cameraRef.current.zoom,
+      setViewport: (vp) => {
+        cameraRef.current = { x: vp.x ?? cameraRef.current.x, y: vp.y ?? cameraRef.current.y, zoom: vp.zoom ?? cameraRef.current.zoom };
+        sendCamera();
+      },
       fitView: (opts = {}) => {
         const wrap = wrapRef.current;
         if (!wrap || !nodesRef.current.length) return;
         const rect = wrap.getBoundingClientRect();
-        const bounds = getNodesBounds(nodesRef.current);
+        const filteredNodes = opts.nodes ? nodesRef.current.filter((n) => opts.nodes.some((fn) => fn.id === n.id)) : nodesRef.current;
+        if (!filteredNodes.length) return;
+        const bounds = getNodesBounds(filteredNodes);
+        const vp = getViewportForBounds(bounds, rect.width, rect.height, opts.padding ?? 0.1);
+        if (opts.maxZoom) vp.zoom = Math.min(vp.zoom, opts.maxZoom);
+        if (opts.minZoom) vp.zoom = Math.max(vp.zoom, opts.minZoom);
+        cameraRef.current = vp;
+        sendCamera();
+      },
+      screenToFlowPosition: (pos) => screenToWorld(pos.x, pos.y),
+      flowToScreenPosition: (flowPos) => {
+        const cam = cameraRef.current;
+        const wrap = wrapRef.current;
+        if (!wrap) return { x: 0, y: 0 };
+        const rect = wrap.getBoundingClientRect();
+        return { x: flowPos.x * cam.zoom + cam.x + rect.left, y: flowPos.y * cam.zoom + cam.y + rect.top };
+      },
+      zoomIn: () => { const cam = cameraRef.current; cam.zoom = Math.min(zoomMax, cam.zoom * 1.2); sendCamera(); },
+      zoomOut: () => { const cam = cameraRef.current; cam.zoom = Math.max(zoomMin, cam.zoom / 1.2); sendCamera(); },
+      zoomTo: (z) => { cameraRef.current.zoom = Math.min(zoomMax, Math.max(zoomMin, z)); sendCamera(); },
+      setNodes: (n) => { refs.current.onNodesChange?.([ ...nodesRef.current.map((x) => ({ id: x.id, type: 'remove' })), ...(typeof n === 'function' ? n(nodesRef.current) : n).map((item) => ({ type: 'add', item })) ]); },
+      setEdges: (e) => { refs.current.onEdgesChange?.([ ...edgesRef.current.map((x) => ({ id: x.id, type: 'remove' })), ...(typeof e === 'function' ? e(edgesRef.current) : e).map((item) => ({ type: 'add', item })) ]); },
+      addNodes: (n) => { const arr = Array.isArray(n) ? n : [n]; refs.current.onNodesChange?.(arr.map((item) => ({ type: 'add', item }))); },
+      addEdges: (e) => { const arr = Array.isArray(e) ? e : [e]; refs.current.onEdgesChange?.(arr.map((item) => ({ type: 'add', item }))); },
+      deleteElements: ({ nodes: dn = [], edges: de = [] }) => {
+        if (dn.length) refs.current.onNodesChange?.(dn.map((n) => ({ id: n.id, type: 'remove' })));
+        if (de.length) refs.current.onEdgesChange?.(de.map((e) => ({ id: e.id, type: 'remove' })));
+      },
+      updateNodeData: (nodeId, dataUpdate) => {
+        const node = nodesRef.current.find((n) => n.id === nodeId);
+        if (!node) return;
+        const newData = typeof dataUpdate === 'function' ? dataUpdate(node.data) : { ...node.data, ...dataUpdate };
+        refs.current.onNodesChange?.([{ id: nodeId, type: 'replace', item: { ...node, data: newData } }]);
+      },
+      toObject: () => ({ nodes: [...nodesRef.current], edges: [...edgesRef.current], viewport: { ...cameraRef.current } }),
+      setCenter: (x, y, opts = {}) => {
+        const wrap = wrapRef.current;
+        if (!wrap) return;
+        const rect = wrap.getBoundingClientRect();
+        const zoom = opts.zoom ?? cameraRef.current.zoom;
+        cameraRef.current = { x: rect.width / 2 - x * zoom, y: rect.height / 2 - y * zoom, zoom };
+        sendCamera();
+      },
+      fitBounds: (bounds, opts = {}) => {
+        const wrap = wrapRef.current;
+        if (!wrap) return;
+        const rect = wrap.getBoundingClientRect();
         const vp = getViewportForBounds(bounds, rect.width, rect.height, opts.padding ?? 0.1);
         cameraRef.current = vp;
         sendCamera();
