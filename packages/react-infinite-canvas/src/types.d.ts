@@ -243,6 +243,22 @@ export interface Card {
 
 // ─── Component Props ─────────────────────────────────────────────
 
+export interface CanvasNodeConfig {
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  radius?: number;
+  shadow?: boolean;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetY?: number;
+  accent?: { side?: 'left' | 'right' | 'top' | 'bottom'; width?: number; color?: string };
+  icon?: { dataField?: string; text?: string; x?: number; y?: number; size?: number; color?: string };
+  title?: { dataField?: string; text?: string; x?: number; y?: number; font?: string; color?: string; align?: string };
+  subtitle?: { dataField?: string; text?: string; x?: number; y?: number; font?: string; color?: string; align?: string };
+  badge?: { dataField?: string; text?: string; bg?: string; color?: string; font?: string; radius?: number; paddingX?: number; paddingY?: number };
+}
+
 export interface InfiniteCanvasProps {
   // Data
   cards?: Card[];
@@ -252,8 +268,17 @@ export interface InfiniteCanvasProps {
   // Custom types
   nodeTypes?: NodeTypes;
   edgeTypes?: EdgeTypes;
-  /** Canvas-rendered bitmaps per node type. Accepts SVG strings, HTMLImageElement, HTMLCanvasElement, or ImageBitmap. */
-  canvasNodeTypes?: Record<string, string | ImageBitmap | HTMLImageElement | HTMLCanvasElement>;
+  /** Canvas-rendered custom nodes per type. Accepts:
+   * - SVG string: converted to ImageBitmap, drawn via drawImage
+   * - HTMLImageElement / HTMLCanvasElement / ImageBitmap: drawn via drawImage
+   * - Function `(data) => svgString`: per-node bitmap with caching
+   * - Config object: declarative style { fill, stroke, radius, accent, icon, title, subtitle, badge }
+   */
+  canvasNodeTypes?: Record<string, string | ImageBitmap | HTMLImageElement | HTMLCanvasElement | CanvasNodeConfig | ((data: Record<string, any>) => string)>;
+
+  /** Max custom nodes rendered as full DOM elements (pinned + selected + nearest visible).
+   *  Remaining custom nodes render on canvas. Default: 50. Set 0 to disable. */
+  domNodeLimit?: number;
 
   // Appearance
   dark?: boolean;

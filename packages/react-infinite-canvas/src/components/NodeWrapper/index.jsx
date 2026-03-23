@@ -250,6 +250,12 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
   const nh = node.height || node.measured?.height;
   const hasDimensions = !!(nw && nh);
 
+  const isPinned = store.pinnedNodeIds?.has(node.id);
+  const onTogglePin = useCallback((e) => {
+    e.stopPropagation();
+    storeRef.current.togglePinNode?.(node.id);
+  }, [node.id]);
+
   return (
     <NodeIdContext.Provider value={node.id}>
       <div
@@ -292,6 +298,35 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           parentId={node.parentId}
           dragHandle={node.dragHandle}
         />
+        {/* Pin button — keeps this node in DOM even when deselected */}
+        {store.togglePinNode && (
+          <button
+            className="ric-pin-btn nodrag"
+            onClick={onTogglePin}
+            title={isPinned ? 'Unpin from DOM' : 'Pin to DOM'}
+            style={{
+              position: 'absolute',
+              top: -8,
+              left: -8,
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              border: '1.5px solid ' + (isPinned ? '#3b82f6' : '#ccc'),
+              background: isPinned ? '#3b82f6' : '#fff',
+              color: isPinned ? '#fff' : '#999',
+              fontSize: 10,
+              lineHeight: '16px',
+              textAlign: 'center',
+              cursor: 'pointer',
+              padding: 0,
+              zIndex: 10,
+              pointerEvents: 'all',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+            }}
+          >
+            {isPinned ? '📌' : '📌'}
+          </button>
+        )}
       </div>
     </NodeIdContext.Provider>
   );

@@ -58,8 +58,11 @@ export default function InfiniteCanvas({
   // Custom types
   nodeTypes,
   edgeTypes,
-  // Canvas-rendered custom node bitmaps: { [type]: svgString | HTMLImageElement | HTMLCanvasElement | ImageBitmap }
+  // Canvas-rendered custom node bitmaps/configs
   canvasNodeTypes,
+  // Max number of custom nodes rendered as full DOM elements (spatial + pinned + selected).
+  // Remaining custom nodes render on canvas. Set 0 to disable DOM promotion entirely.
+  domNodeLimit = 50,
 
   // Appearance
   dark, gridSize, width = '100%', height = '420px',
@@ -130,15 +133,52 @@ export default function InfiniteCanvas({
   // Nodes with guaranteed `measured` dimensions for layout algorithms
   const measuredNodes = useMemo(() => ensureMeasured(nodes), [nodes]);
 
-  // Hybrid rendering: all nodes live on canvas by default (worker draws them
-  // as simple boxes). Only "promoted" nodes (selected/dragging) get the full
-  // React component treatment in the DOM overlay. This keeps DOM node count
-  // near-zero for thousands of nodes while still providing rich interaction.
+  // ── Spatial DOM promotion ──────────────────────────────────────
+  // Up to `domNodeLimit` custom nodes get full React DOM rendering.
+  // Priority: pinned nodes > selected/dragging > nearest visible nodes.
+  // Everything else renders on canvas (declarative config / bitmap / default box).
+  const [pinnedNodeIds, setPinnedNodeIds] = useState(() => new Set());
+  const pinnedRef = useRef(pinnedNodeIds);
+  pinnedRef.current = pinnedNodeIds;
+
+  const pinNode = useCallback((id) => {
+    setPinnedNodeIds((prev) => { const next = new Set(prev); next.add(id); return next; });
+  }, []);
+  const unpinNode = useCallback((id) => {
+    setPinnedNodeIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+  }, []);
+  const togglePinNode = useCallback((id) => {
+    setPinnedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // All custom-typed nodes (candidates for promotion)
+  const allCustomNodes = useMemo(() => {
+    return measuredNodes.filter((n) => n.type && customNodeTypes[n.type]);
+  }, [measuredNodes, customNodeTypes]);
+
+  const customEdges = useMemo(() => {
+    return edges.filter((e) => e.type && customEdgeTypes[e.type]);
+  }, [edges, customEdgeTypes]);
+
+  // Immediate promoted set: pinned + selected (no spatial — baseStore not available yet).
+  // Spatial promotion is added via RAF effect after baseStore is initialized.
+  const [spatialIds, setSpatialIds] = useState(() => new Set());
+  const immediatePromotedIds = useMemo(() => {
+    const ids = new Set(spatialIds);
+    for (const id of pinnedNodeIds) ids.add(id);
+    for (const n of allCustomNodes) {
+      if (n.selected || n.dragging) ids.add(n.id);
+    }
+    return ids;
+  }, [allCustomNodes, pinnedNodeIds, spatialIds]);
+
   const promotedNodes = useMemo(() => {
-    const filtered = measuredNodes.filter(
-      (n) => n.type && customNodeTypes[n.type] && (n.selected || n.dragging)
-    );
-    // Sort: parent/group nodes first (lower z-index) so children render on top
+    if (domNodeLimit === 0) return [];
+    const filtered = measuredNodes.filter((n) => immediatePromotedIds.has(n.id));
     return filtered.sort((a, b) => {
       const aIsGroup = a.type === 'group' || (!a.parentId && filtered.some((n) => n.parentId === a.id));
       const bIsGroup = b.type === 'group' || (!b.parentId && filtered.some((n) => n.parentId === b.id));
@@ -146,22 +186,17 @@ export default function InfiniteCanvas({
       if (!aIsGroup && bIsGroup) return 1;
       return 0;
     });
-  }, [measuredNodes, customNodeTypes]);
+  }, [measuredNodes, immediatePromotedIds, domNodeLimit]);
 
-  const customEdges = useMemo(() => {
-    return edges.filter((e) => e.type && customEdgeTypes[e.type]);
-  }, [edges, customEdgeTypes]);
-
-  // Only promoted (selected/dragging) nodes get _customRendered so the worker
-  // skips them. All other nodes — including custom-typed ones — render on canvas.
+  // Worker nodes: mark promoted nodes so worker skips them
   const workerNodes = useMemo(() => {
     return nodes.map((n) => {
-      if (n.type && customNodeTypes[n.type] && (n.selected || n.dragging)) {
+      if (immediatePromotedIds.has(n.id)) {
         return { ...n, _customRendered: true };
       }
       return n;
     });
-  }, [nodes, customNodeTypes]);
+  }, [nodes, immediatePromotedIds]);
 
   const workerEdges = useMemo(() => {
     return edges.map((e) => {
@@ -209,6 +244,59 @@ export default function InfiniteCanvas({
     edgeRouting,
   });
 
+  // ── Spatial DOM promotion: fill remaining domNodeLimit slots with nearest visible nodes ──
+  useEffect(() => {
+    if (domNodeLimit === 0 || !allCustomNodes.length) return;
+    let rafId;
+    const update = () => {
+      const cam = baseStore.cameraRef.current;
+      const wrap = baseStore.wrapRef.current;
+      if (!wrap) { rafId = requestAnimationFrame(update); return; }
+      const ww = wrap.clientWidth;
+      const wh = wrap.clientHeight;
+      const cx = (-cam.x + ww / 2) / cam.zoom;
+      const cy = (-cam.y + wh / 2) / cam.zoom;
+
+      // Count slots already taken by pinned + selected
+      let taken = pinnedNodeIds.size;
+      for (const n of allCustomNodes) {
+        if (n.selected || n.dragging) taken++;
+      }
+      const remaining = Math.max(0, domNodeLimit - taken);
+
+      if (remaining === 0) {
+        setSpatialIds((prev) => prev.size === 0 ? prev : new Set());
+      } else {
+        const takenIds = new Set(pinnedNodeIds);
+        for (const n of allCustomNodes) {
+          if (n.selected || n.dragging) takenIds.add(n.id);
+        }
+        const candidates = allCustomNodes
+          .filter((n) => !takenIds.has(n.id))
+          .map((n) => {
+            const pos = n._absolutePosition || n.position;
+            const dx = pos.x + (n.width || 160) / 2 - cx;
+            const dy = pos.y + (n.height || 60) / 2 - cy;
+            return { id: n.id, dist: dx * dx + dy * dy };
+          })
+          .sort((a, b) => a.dist - b.dist);
+
+        const ids = new Set();
+        for (let i = 0; i < Math.min(remaining, candidates.length); i++) {
+          ids.add(candidates[i].id);
+        }
+        setSpatialIds((prev) => {
+          if (prev.size !== ids.size) return ids;
+          for (const id of ids) { if (!prev.has(id)) return ids; }
+          return prev;
+        });
+      }
+      rafId = requestAnimationFrame(update);
+    };
+    rafId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(rafId);
+  }, [allCustomNodes, pinnedNodeIds, domNodeLimit, baseStore]);
+
   // Convert canvasNodeTypes to ImageBitmaps and send to worker.
   // Supports static values (string, Image, Canvas, ImageBitmap) and
   // functions (data) => svgString for per-node bitmaps with caching.
@@ -232,10 +320,19 @@ export default function InfiniteCanvas({
       const staticTransfer = [];
       const fnTypes = {}; // type → function
 
-      // Separate static vs function entries
+      const configTypes = {}; // type → config object (declarative)
+
+      // Separate static vs function vs config entries
       for (const [type, src] of Object.entries(canvasNodeTypes)) {
         if (typeof src === 'function') {
           fnTypes[type] = src;
+          continue;
+        }
+        // Plain config object (has 'fill' or 'stroke' — declarative style)
+        if (typeof src === 'object' && src !== null && !(src instanceof ImageBitmap)
+            && !(src instanceof HTMLImageElement) && !(src instanceof HTMLCanvasElement)
+            && ('fill' in src || 'stroke' in src || 'title' in src || 'accent' in src)) {
+          configTypes[type] = src;
           continue;
         }
         try {
@@ -258,6 +355,13 @@ export default function InfiniteCanvas({
         baseStore.workerRef.current?.postMessage(
           { type: 'nodeTypeBitmaps', data: { bitmaps: staticBitmaps } },
           staticTransfer
+        );
+      }
+
+      // Send declarative config types
+      if (!cancelled && Object.keys(configTypes).length > 0) {
+        baseStore.workerRef.current?.postMessage(
+          { type: 'nodeTypeConfigs', data: { configs: configTypes } }
         );
       }
 
@@ -337,6 +441,8 @@ export default function InfiniteCanvas({
     ...baseStore,
     edgeLabelContainerRef,
     viewportPortalRef,
+    pinNode, unpinNode, togglePinNode,
+    get pinnedNodeIds() { return pinnedRef.current; },
     get nodes() { return measuredNodes; },
     get edges() { return edges; },
     get viewport() { return baseStore.cameraRef.current; },
@@ -345,7 +451,7 @@ export default function InfiniteCanvas({
     get domNode() { return baseStore.wrapRef.current; },
     get width() { return baseStore.wrapRef.current?.clientWidth || 0; },
     get height() { return baseStore.wrapRef.current?.clientHeight || 0; },
-  }), [baseStore, measuredNodes, edges]);
+  }), [baseStore, measuredNodes, edges, pinNode, unpinNode, togglePinNode]);
 
 
   // Refs for direct DOM transform updates (bypass React re-renders during pan/zoom)

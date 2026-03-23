@@ -28,6 +28,8 @@ var nodeTypeBitmaps = {};
 // Per-node bitmaps (from function canvasNodeTypes): keyed by content hash
 var nodeBitmapCache = {}; // { [hash]: ImageBitmap }
 var nodeBitmapKeys = {};  // { [nodeId]: hash }
+// Declarative node type configs: { [type]: { fill, stroke, radius, accent, icon, title, subtitle, badge, ... } }
+var nodeTypeConfigs = {};
 
 // Default node dimensions
 var DEFAULT_NODE_WIDTH = 160;
@@ -524,6 +526,12 @@ self.onmessage = function(e) {
         // data: { cache: { [hash]: ImageBitmap }, keys: { [nodeId]: hash } }
         nodeBitmapCache = data.cache || {};
         nodeBitmapKeys = data.keys || {};
+        scheduleRender();
+        break;
+
+      case 'nodeTypeConfigs':
+        // Receive declarative config objects for custom node types
+        nodeTypeConfigs = data.configs || {};
         scheduleRender();
         break;
 
@@ -1516,16 +1524,21 @@ function render() {
     var showShadowN = camera.zoom > 0.08 && visNodeCount < 200;
     var showHandles = camera.zoom > 0.2 && visNodeCount < 300;
 
-    // Split nodes into bitmap-rendered and default-rendered
-    var hasBitmaps = Object.keys(nodeTypeBitmaps).length > 0 || Object.keys(nodeBitmapKeys).length > 0;
+    // Split nodes into bitmap-rendered, config-rendered, and default-rendered
+    var hasCustomCanvas = Object.keys(nodeTypeBitmaps).length > 0
+      || Object.keys(nodeBitmapKeys).length > 0
+      || Object.keys(nodeTypeConfigs).length > 0;
     var defaultNodes = visibleNodes;
     var bitmapNodes = [];
-    if (hasBitmaps) {
+    var configNodes = [];
+    if (hasCustomCanvas) {
       defaultNodes = [];
       for (var sni = 0; sni < visNodeCount; sni++) {
         var sn = visibleNodes[sni];
         if (nodeBitmapKeys[sn.id] || (sn.type && nodeTypeBitmaps[sn.type])) {
           bitmapNodes.push(sn);
+        } else if (sn.type && nodeTypeConfigs[sn.type]) {
+          configNodes.push(sn);
         } else {
           defaultNodes.push(sn);
         }
@@ -1633,6 +1646,138 @@ function render() {
     }
     // Reset text alignment after bitmap pass
     if (bitmapNodes.length > 0 && showNodeText) {
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    // PASS C: Declarative config nodes — draw shapes, accent, icon, title, subtitle, badge
+    for (var cni = 0; cni < configNodes.length; cni++) {
+      var cn = configNodes[cni];
+      var cfg = nodeTypeConfigs[cn.type];
+      var cp = getNodePos(cn);
+      var cw = cn.width || DEFAULT_NODE_WIDTH;
+      var ch = cn.height || DEFAULT_NODE_HEIGHT;
+      var cr = cfg.radius || NODE_RADIUS;
+      var nodeData = cn.data || {};
+
+      // Shadow
+      if (showShadowN && cfg.shadow !== false) {
+        ctx.save();
+        ctx.shadowColor = cfg.shadowColor || COLORS.nodeShadow;
+        ctx.shadowBlur = cfg.shadowBlur || 6;
+        ctx.shadowOffsetY = cfg.shadowOffsetY || 2;
+        ctx.fillStyle = cfg.fill || COLORS.nodeBg;
+        ctx.beginPath();
+        ctx.roundRect(cp.x, cp.y, cw, ch, cr);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Background fill
+      ctx.fillStyle = cfg.fill || COLORS.nodeBg;
+      ctx.beginPath();
+      ctx.roundRect(cp.x, cp.y, cw, ch, cr);
+      ctx.fill();
+
+      // Border
+      ctx.strokeStyle = cn.selected ? COLORS.nodeSelectedBorder : (cfg.stroke || COLORS.nodeBorder);
+      ctx.lineWidth = cn.selected ? 2 : (cfg.strokeWidth || 1);
+      ctx.beginPath();
+      ctx.roundRect(cp.x, cp.y, cw, ch, cr);
+      ctx.stroke();
+
+      // Accent bar
+      if (cfg.accent) {
+        var ac = cfg.accent;
+        ctx.fillStyle = ac.color || '#3b82f6';
+        var acW = ac.width || 5;
+        ctx.beginPath();
+        if (ac.side === 'right') {
+          ctx.roundRect(cp.x + cw - acW, cp.y, acW, ch, [0, cr, cr, 0]);
+        } else if (ac.side === 'top') {
+          ctx.roundRect(cp.x, cp.y, cw, acW, [cr, cr, 0, 0]);
+        } else if (ac.side === 'bottom') {
+          ctx.roundRect(cp.x, cp.y + ch - acW, cw, acW, [0, 0, cr, cr]);
+        } else {
+          // default: left
+          ctx.roundRect(cp.x, cp.y, acW, ch, [cr, 0, 0, cr]);
+        }
+        ctx.fill();
+      }
+
+      // Icon (emoji text from node.data)
+      if (cfg.icon && showNodeText) {
+        var ic = cfg.icon;
+        var iconVal = ic.dataField ? nodeData[ic.dataField] : ic.text;
+        if (iconVal) {
+          ctx.font = (ic.size || 18) + 'px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = ic.color || COLORS.nodeText;
+          var icX = cp.x + (ic.x !== undefined ? ic.x : 20);
+          var icY = cp.y + (ic.y !== undefined ? ic.y : ch / 2);
+          ctx.fillText(iconVal, icX, icY);
+        }
+      }
+
+      // Title text
+      if (cfg.title && showNodeText) {
+        var tt = cfg.title;
+        var titleVal = tt.dataField ? nodeData[tt.dataField] : tt.text;
+        if (titleVal) {
+          ctx.font = tt.font || '600 13px system-ui, sans-serif';
+          ctx.textAlign = tt.align || 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = tt.color || COLORS.nodeText;
+          var ttX = cp.x + (tt.x !== undefined ? tt.x : 12);
+          var ttY = cp.y + (tt.y !== undefined ? tt.y : 12);
+          ctx.fillText(titleVal, ttX, ttY, cw - ttX + cp.x - 12);
+        }
+      }
+
+      // Subtitle text
+      if (cfg.subtitle && showNodeText) {
+        var st = cfg.subtitle;
+        var subVal = st.dataField ? nodeData[st.dataField] : st.text;
+        if (subVal) {
+          ctx.font = st.font || '11px system-ui, sans-serif';
+          ctx.textAlign = st.align || 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = st.color || '#64748b';
+          var stX = cp.x + (st.x !== undefined ? st.x : 12);
+          var stY = cp.y + (st.y !== undefined ? st.y : 32);
+          ctx.fillText(subVal, stX, stY, cw - stX + cp.x - 12);
+        }
+      }
+
+      // Badge
+      if (cfg.badge && showNodeText) {
+        var bd = cfg.badge;
+        var bdVal = bd.dataField ? nodeData[bd.dataField] : bd.text;
+        if (bdVal) {
+          ctx.font = bd.font || '700 9px system-ui, sans-serif';
+          var bdMetrics = ctx.measureText(bdVal);
+          var bdPadX = bd.paddingX || 6;
+          var bdPadY = bd.paddingY || 3;
+          var bdW = bdMetrics.width + bdPadX * 2;
+          var bdH = 14 + bdPadY;
+          var bdX = cp.x + cw - bdW / 2 - 4;
+          var bdY = cp.y - bdH / 2;
+          // Badge background
+          ctx.fillStyle = bd.bg || '#3b82f6';
+          ctx.beginPath();
+          ctx.roundRect(bdX, bdY, bdW, bdH, bd.radius || 7);
+          ctx.fill();
+          // Badge text
+          ctx.fillStyle = bd.color || '#fff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(bdVal, bdX + bdW / 2, bdY + bdH / 2);
+        }
+      }
+    }
+    // Reset text state after config pass
+    if (configNodes.length > 0) {
       ctx.textAlign = 'start';
       ctx.textBaseline = 'alphabetic';
     }

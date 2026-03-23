@@ -47,6 +47,15 @@
   -webkit-user-select: auto;
 }
 
+/* Pin button on DOM-promoted nodes */
+.ric-pin-btn {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.ric-node-wrapper:hover .ric-pin-btn {
+  opacity: 1;
+}
+
 .ric-canvas {
   position: absolute;
   top: 0;

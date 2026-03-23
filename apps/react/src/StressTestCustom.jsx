@@ -49,20 +49,19 @@ function WorkflowNode({ data, selected }) {
 
 const CUSTOM_NODE_TYPES = { workflow: WorkflowNode };
 
-// SVG shell for canvas-rendered workflow nodes (no text — worker draws label on top).
-const WORKFLOW_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="70" viewBox="0 0 160 70">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#f8faff"/>
-      <stop offset="100%" stop-color="#eef4ff"/>
-    </linearGradient>
-  </defs>
-  <rect x="1" y="1" width="158" height="68" rx="10" ry="10"
-        fill="url(#bg)" stroke="#c7d8f0" stroke-width="1"/>
-  <rect x="1" y="1" width="6" height="68" rx="3" ry="3" fill="#3b82f6"/>
-</svg>`;
-
-const CANVAS_NODE_TYPES = { workflow: WORKFLOW_SVG };
+// Declarative canvas config — worker draws shapes, text, icons, badges per node
+const CANVAS_NODE_TYPES = {
+  workflow: {
+    fill: '#f0f9ff',
+    stroke: '#c7d8f0',
+    radius: 10,
+    accent: { side: 'left', width: 5, color: '#3b82f6' },
+    icon: { dataField: 'icon', x: 20, size: 18 },
+    title: { dataField: 'label', x: 40, y: 16, font: '600 13px system-ui, sans-serif', color: '#1e293b' },
+    subtitle: { dataField: 'description', x: 40, y: 36, font: '11px system-ui, sans-serif', color: '#64748b' },
+    badge: { dataField: 'badge', bg: '#3b82f6', color: '#fff', font: '700 9px system-ui, sans-serif' },
+  },
+};
 
 function generateNodesAndEdges(nodeCount) {
   const nodes = [];
@@ -111,6 +110,7 @@ function generateNodesAndEdges(nodeCount) {
 
 export default function StressTestCustom() {
   const [count, setCount] = useState(200);
+  const [domLimit, setDomLimit] = useState(50);
   const [loading, setLoading] = useState(false);
   const [hud, setHud] = useState({ wx: 0, wy: 0, zoom: '1.00', renderMs: '0', fps: 0 });
   const pendingCountRef = useRef(null);
@@ -152,11 +152,15 @@ export default function StressTestCustom() {
         <button onClick={() => handleSetCount(1000)} style={btnStyle} disabled={loading}>1,000</button>
         <button onClick={() => handleSetCount(2000)} style={btnStyle} disabled={loading}>2,000</button>
         <button onClick={() => handleSetCount(5000)} style={btnStyle} disabled={loading}>5,000</button>
+        <span style={{ fontSize: 11, color: '#666', marginLeft: 12 }}>DOM limit:</span>
+        {[0, 10, 50, 100].map((n) => (
+          <button key={n} onClick={() => setDomLimit(n)} style={{ ...btnStyle, background: domLimit === n ? '#e0e7ff' : '#fff' }}>{n}</button>
+        ))}
         <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#888', marginLeft: 8 }}>
           {nodes.length} custom nodes ({hud.visibleNodes || '?'} visible) | {edges.length} edges | zoom: {hud.zoom}x
           {hud.renderMs ? ' | render: ' + hud.renderMs + 'ms' : ''}
           {hud.fps ? ' | fps: ' + hud.fps : ''}
-          &nbsp;| <span style={{ color: '#3b82f6' }}>Click a node to promote it to a React component</span>
+          &nbsp;| <span style={{ color: '#3b82f6' }}>Nearest 50 nodes are DOM (pin 📌 to keep)</span>
         </span>
       </div>
       <div style={{ position: 'relative' }}>
@@ -165,6 +169,7 @@ export default function StressTestCustom() {
           edges={edges}
           nodeTypes={CUSTOM_NODE_TYPES}
           canvasNodeTypes={CANVAS_NODE_TYPES}
+          domNodeLimit={domLimit}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
