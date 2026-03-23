@@ -1047,27 +1047,33 @@ export default function useInfiniteCanvas({
     // Node drag end — commit final positions to React state
     if (dragNodeRef.current) {
       const drag = dragNodeRef.current;
-      // Keep dragNodeRef set until after state commit so the useEffect
-      // doesn't send a stale full-node sync before React applies the
-      // final positions.
-      if (onNodesChangeRef.current) {
-        // Send final positions from nodesRef (updated in-place during drag)
-        const dragNode = nodesRef.current.find(n => n.id === drag.id);
-        const changes = [{
-          id: drag.id,
-          type: 'position',
-          position: dragNode ? { ...dragNode.position } : undefined,
+      // Immediately tell worker drag ended (resets activeDragCount → config rendering resumes)
+      const dragNode = nodesRef.current.find(n => n.id === drag.id);
+      const dragEndUpdates = [{
+        id: drag.id,
+        position: dragNode ? { ...dragNode.position } : drag.startPos,
+        _absolutePosition: dragNode ? { ...dragNode.position } : drag.startPos,
+        dragging: false,
+      }];
+      for (const s of drag.selectedStarts) {
+        const sn = nodesRef.current.find(n => n.id === s.id);
+        dragEndUpdates.push({
+          id: s.id,
+          position: sn ? { ...sn.position } : s.startPos,
+          _absolutePosition: sn ? { ...sn.position } : s.startPos,
           dragging: false,
-        }];
-        for (const s of drag.selectedStarts) {
-          const sn = nodesRef.current.find(n => n.id === s.id);
-          changes.push({
-            id: s.id,
-            type: 'position',
-            position: sn ? { ...sn.position } : undefined,
-            dragging: false,
-          });
-        }
+        });
+      }
+      workerRef.current?.postMessage({ type: 'nodePositions', data: { updates: dragEndUpdates } });
+
+      // Commit final positions to React state
+      if (onNodesChangeRef.current) {
+        const changes = dragEndUpdates.map(u => ({
+          id: u.id,
+          type: 'position',
+          position: u.position,
+          dragging: false,
+        }));
         onNodesChangeRef.current(changes);
       }
       // Clear drag ref AFTER React processes the state update and useEffect runs.

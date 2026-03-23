@@ -428,6 +428,11 @@ self.onmessage = function(e) {
 
       case 'nodes':
         nodes = data.nodes;
+        // Recount active drags from fresh node list
+        activeDragCount = 0;
+        for (var adc = 0; adc < nodes.length; adc++) {
+          if (nodes[adc].dragging) activeDragCount++;
+        }
         nodeLookupDirty = true;
         nodeSpatialDirty = true;
         handleCacheDirty = true;
@@ -1548,15 +1553,14 @@ function render() {
     // Detect active drag — reduce LOD aggressively to maintain FPS
     var isDragging = activeDragCount > 0;
     // Adaptive LOD thresholds based on visible node count + drag state
-    var showNodeText = !isDragging && camera.zoom > 0.12 && (camera.zoom > 0.25 || visNodeCount < 500);
+    var showNodeText = camera.zoom > 0.12 && (camera.zoom > 0.25 || visNodeCount < 500);
     var showShadowN = !isDragging && camera.zoom > 0.08 && visNodeCount < 200;
     var showHandles = !isDragging && camera.zoom > 0.2 && visNodeCount < 300;
 
     // Split nodes into bitmap-rendered, config-rendered, and default-rendered.
-    // During drag: skip custom rendering — treat everything as default (batched) for max FPS.
-    var hasCustomCanvas = !isDragging && (Object.keys(nodeTypeBitmaps).length > 0
+    var hasCustomCanvas = Object.keys(nodeTypeBitmaps).length > 0
       || Object.keys(nodeBitmapKeys).length > 0
-      || Object.keys(nodeTypeConfigs).length > 0);
+      || Object.keys(nodeTypeConfigs).length > 0;
     var defaultNodes = visibleNodes;
     var bitmapNodes = [];
     var configNodes = [];

@@ -184,17 +184,27 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
 
     const onUp = (ev) => {
       if (!dragRef.current) return;
+
+      // Immediately tell worker drag ended (resets activeDragCount → config rendering resumes)
+      const dragEndUpdates = [{ id: node.id, position: node.position, dragging: false }];
+      for (const s of dragRef.current.selectedStarts) {
+        dragEndUpdates.push({ id: s.id, position: s.startPos, dragging: false });
+      }
+      // Use final positions if available
+      if (latestPositions) {
+        for (let i = 0; i < latestPositions.length; i++) {
+          dragEndUpdates[i] = { id: latestPositions[i].id, position: latestPositions[i].position, dragging: false };
+        }
+      }
+      storeRef.current.workerRef?.current?.postMessage({
+        type: 'nodePositions',
+        data: { updates: dragEndUpdates },
+      });
+
       // Commit final positions to React state (single update, not per-frame)
       const changes = [];
-      if (latestPositions) {
-        for (const u of latestPositions) {
-          changes.push({ id: u.id, type: 'position', position: u.position, dragging: false });
-        }
-      } else {
-        changes.push({ id: node.id, type: 'position', dragging: false });
-        for (const s of dragRef.current.selectedStarts) {
-          changes.push({ id: s.id, type: 'position', dragging: false });
-        }
+      for (const u of dragEndUpdates) {
+        changes.push({ id: u.id, type: 'position', position: u.position, dragging: false });
       }
       storeRef.current.onNodesChangeRef.current?.(changes);
       dragRef.current = null;
