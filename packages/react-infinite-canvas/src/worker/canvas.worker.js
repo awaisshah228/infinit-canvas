@@ -30,6 +30,8 @@ var nodeBitmapCache = {}; // { [hash]: ImageBitmap }
 var nodeBitmapKeys = {};  // { [nodeId]: hash }
 // Declarative node type configs: { [type]: { fill, stroke, radius, accent, icon, title, subtitle, badge, ... } }
 var nodeTypeConfigs = {};
+// Track how many nodes are actively being dragged (for LOD during drag)
+var activeDragCount = 0;
 
 // Default node dimensions
 var DEFAULT_NODE_WIDTH = 160;
@@ -438,6 +440,7 @@ self.onmessage = function(e) {
         // Lightweight update: only patch positions of changed nodes (used during drag)
         if (nodeLookupDirty) rebuildNodeLookup();
         var updates = data.updates; // [{ id, position, _absolutePosition?, width?, height? }]
+        var dragDelta = 0;
         for (var ui = 0; ui < updates.length; ui++) {
           var u = updates[ui];
           var existing = nodeLookup[u.id];
@@ -446,14 +449,19 @@ self.onmessage = function(e) {
             if (u._absolutePosition) existing._absolutePosition = u._absolutePosition;
             if (u.width !== undefined) existing.width = u.width;
             if (u.height !== undefined) existing.height = u.height;
+            // Track drag count changes
+            if (u.dragging && !existing.dragging) dragDelta++;
+            else if (!u.dragging && existing.dragging) dragDelta--;
             existing.dragging = u.dragging;
             existing.selected = u.selected;
           }
         }
+        activeDragCount = Math.max(0, activeDragCount + dragDelta);
         handleCacheDirty = true;
-        nodeSpatialDirty = true;
+        // Don't rebuild spatial grid for small position updates (drag).
+        // The node stays in roughly the same viewport area — grid rebuild is O(n) and kills FPS.
+        if (updates.length > 10) nodeSpatialDirty = true;
         scheduleRender();
-        scheduleEdgeRouting();
         break;
 
       case 'nodeSelections':
@@ -1091,10 +1099,12 @@ function render() {
     var showEdgeArrows = camera.zoom > 0.05;
 
     // Collect edge indices connected to visible nodes (avoid iterating all edges)
+    // Also always include edges for dragging nodes (even if spatially culled)
     var edgeIndices;
     if (visibleNodeSet && nodes.length > 100) {
       var seenEdge = {};
       edgeIndices = [];
+      // Include edges for visible nodes
       for (var vid in visibleNodeSet) {
         var adj = edgeAdjacency[vid];
         if (!adj) continue;
@@ -1103,6 +1113,22 @@ function render() {
           if (!seenEdge[idx]) {
             seenEdge[idx] = true;
             edgeIndices.push(idx);
+          }
+        }
+      }
+      // Always include edges for dragging/selected nodes (they may be _customRendered
+      // and might not appear in visibleNodeSet if spatial grid is stale)
+      for (var di = 0; di < nodes.length; di++) {
+        var dn = nodes[di];
+        if ((dn.dragging || dn.selected) && !visibleNodeSet[dn.id]) {
+          var dadj = edgeAdjacency[dn.id];
+          if (dadj) {
+            for (var dai = 0; dai < dadj.length; dai++) {
+              if (!seenEdge[dadj[dai]]) {
+                seenEdge[dadj[dai]] = true;
+                edgeIndices.push(dadj[dai]);
+              }
+            }
           }
         }
       }
@@ -1519,15 +1545,18 @@ function render() {
 
   // ── Render nodes (batched like cards) ─────────────────────────
   if (visNodeCount > 0) {
-    // Adaptive LOD thresholds based on visible node count
-    var showNodeText = camera.zoom > 0.12 && (camera.zoom > 0.25 || visNodeCount < 500);
-    var showShadowN = camera.zoom > 0.08 && visNodeCount < 200;
-    var showHandles = camera.zoom > 0.2 && visNodeCount < 300;
+    // Detect active drag — reduce LOD aggressively to maintain FPS
+    var isDragging = activeDragCount > 0;
+    // Adaptive LOD thresholds based on visible node count + drag state
+    var showNodeText = !isDragging && camera.zoom > 0.12 && (camera.zoom > 0.25 || visNodeCount < 500);
+    var showShadowN = !isDragging && camera.zoom > 0.08 && visNodeCount < 200;
+    var showHandles = !isDragging && camera.zoom > 0.2 && visNodeCount < 300;
 
-    // Split nodes into bitmap-rendered, config-rendered, and default-rendered
-    var hasCustomCanvas = Object.keys(nodeTypeBitmaps).length > 0
+    // Split nodes into bitmap-rendered, config-rendered, and default-rendered.
+    // During drag: skip custom rendering — treat everything as default (batched) for max FPS.
+    var hasCustomCanvas = !isDragging && (Object.keys(nodeTypeBitmaps).length > 0
       || Object.keys(nodeBitmapKeys).length > 0
-      || Object.keys(nodeTypeConfigs).length > 0;
+      || Object.keys(nodeTypeConfigs).length > 0);
     var defaultNodes = visibleNodes;
     var bitmapNodes = [];
     var configNodes = [];

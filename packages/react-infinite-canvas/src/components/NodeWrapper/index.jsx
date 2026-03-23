@@ -107,17 +107,9 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     const el = wrapperRef.current;
     if (el) el.setPointerCapture(e.pointerId);
 
-    // Throttle React state updates — commit at most every 16ms (60fps)
-    let rafPending = null;
-    let latestChanges = null;
-
-    const commitToReact = () => {
-      if (latestChanges) {
-        storeRef.current.onNodesChangeRef.current?.(latestChanges);
-        latestChanges = null;
-      }
-      rafPending = null;
-    };
+    // During drag: update DOM directly + send lightweight position to worker.
+    // NO React state updates until drag ends — avoids 5000-node recomputation per frame.
+    let latestPositions = null; // for final commit
 
     const onMove = (ev) => {
       if (!dragRef.current) return;
@@ -156,7 +148,9 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
         el.style.left = newPos.x + 'px';
         el.style.top = newPos.y + 'px';
       }
-      // Also move other selected nodes directly in DOM
+
+      // Build positions for worker + other selected nodes
+      const updates = [{ id: node.id, position: newPos, _absolutePosition: newPos, dragging: true }];
       for (const s of dragRef.current.selectedStarts) {
         let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
         if (storeRef.current.snapToGrid && storeRef.current.snapGrid) {
@@ -170,39 +164,41 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           sEl.style.left = sPos.x + 'px';
           sEl.style.top = sPos.y + 'px';
         }
+        updates.push({ id: s.id, position: sPos, _absolutePosition: sPos, dragging: true });
       }
 
-      // Batch React state updates via RAF (throttle to ~60fps)
-      const changes = [{ id: node.id, type: 'position', position: newPos, dragging: true }];
-      for (const s of dragRef.current.selectedStarts) {
-        let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
-        if (storeRef.current.snapToGrid && storeRef.current.snapGrid) {
-          sPos = {
-            x: storeRef.current.snapGrid[0] * Math.round(sPos.x / storeRef.current.snapGrid[0]),
-            y: storeRef.current.snapGrid[1] * Math.round(sPos.y / storeRef.current.snapGrid[1]),
-          };
-        }
-        changes.push({ id: s.id, type: 'position', position: sPos, dragging: true });
+      // Send lightweight position update directly to worker (no React, no 5000-node rebuild)
+      storeRef.current.workerRef?.current?.postMessage({
+        type: 'nodePositions',
+        data: { updates },
+      });
+
+      // Also update nodesRef in-place so other code sees current positions
+      for (const u of updates) {
+        const n = storeRef.current.nodesRef.current.find((nd) => nd.id === u.id);
+        if (n) n.position = u.position;
       }
-      latestChanges = changes;
-      if (!rafPending) {
-        rafPending = requestAnimationFrame(commitToReact);
-      }
+
+      latestPositions = updates;
     };
 
     const onUp = (ev) => {
       if (!dragRef.current) return;
-      // Flush any pending RAF update
-      if (rafPending) {
-        cancelAnimationFrame(rafPending);
-        commitToReact();
-      }
-      const changes = [{ id: node.id, type: 'position', dragging: false }];
-      for (const s of dragRef.current.selectedStarts) {
-        changes.push({ id: s.id, type: 'position', dragging: false });
+      // Commit final positions to React state (single update, not per-frame)
+      const changes = [];
+      if (latestPositions) {
+        for (const u of latestPositions) {
+          changes.push({ id: u.id, type: 'position', position: u.position, dragging: false });
+        }
+      } else {
+        changes.push({ id: node.id, type: 'position', dragging: false });
+        for (const s of dragRef.current.selectedStarts) {
+          changes.push({ id: s.id, type: 'position', dragging: false });
+        }
       }
       storeRef.current.onNodesChangeRef.current?.(changes);
       dragRef.current = null;
+      latestPositions = null;
       if (el) el.releasePointerCapture(ev.pointerId);
       el?.removeEventListener('pointermove', onMove);
       el?.removeEventListener('pointerup', onUp);

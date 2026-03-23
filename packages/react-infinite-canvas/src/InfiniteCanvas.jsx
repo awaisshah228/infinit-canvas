@@ -167,12 +167,21 @@ export default function InfiniteCanvas({
   // Immediate promoted set: pinned + selected (no spatial — baseStore not available yet).
   // Spatial promotion is added via RAF effect after baseStore is initialized.
   const [spatialIds, setSpatialIds] = useState(() => new Set());
+  const prevPromotedRef = useRef(new Set());
   const immediatePromotedIds = useMemo(() => {
     const ids = new Set(spatialIds);
     for (const id of pinnedNodeIds) ids.add(id);
     for (const n of allCustomNodes) {
       if (n.selected || n.dragging) ids.add(n.id);
     }
+    // Stabilize: return previous reference if contents haven't changed
+    const prev = prevPromotedRef.current;
+    if (prev.size === ids.size) {
+      let same = true;
+      for (const id of ids) { if (!prev.has(id)) { same = false; break; } }
+      if (same) return prev;
+    }
+    prevPromotedRef.current = ids;
     return ids;
   }, [allCustomNodes, pinnedNodeIds, spatialIds]);
 
@@ -245,13 +254,15 @@ export default function InfiniteCanvas({
   });
 
   // ── Spatial DOM promotion: fill remaining domNodeLimit slots with nearest visible nodes ──
+  // Throttled to every 500ms to avoid crushing perf with 5000+ nodes.
+  // During pan/zoom, the canvas worker handles rendering — DOM promotion can lag behind.
   useEffect(() => {
     if (domNodeLimit === 0 || !allCustomNodes.length) return;
-    let rafId;
+    let timer;
     const update = () => {
       const cam = baseStore.cameraRef.current;
       const wrap = baseStore.wrapRef.current;
-      if (!wrap) { rafId = requestAnimationFrame(update); return; }
+      if (!wrap) return;
       const ww = wrap.clientWidth;
       const wh = wrap.clientHeight;
       const cx = (-cam.x + ww / 2) / cam.zoom;
@@ -271,19 +282,23 @@ export default function InfiniteCanvas({
         for (const n of allCustomNodes) {
           if (n.selected || n.dragging) takenIds.add(n.id);
         }
-        const candidates = allCustomNodes
-          .filter((n) => !takenIds.has(n.id))
-          .map((n) => {
-            const pos = n._absolutePosition || n.position;
-            const dx = pos.x + (n.width || 160) / 2 - cx;
-            const dy = pos.y + (n.height || 60) / 2 - cy;
-            return { id: n.id, dist: dx * dx + dy * dy };
-          })
-          .sort((a, b) => a.dist - b.dist);
+        // Only sort the top N candidates — avoid full sort of 5000 nodes.
+        // Use a partial selection: score all, then pick smallest N.
+        const scored = [];
+        for (let i = 0; i < allCustomNodes.length; i++) {
+          const n = allCustomNodes[i];
+          if (takenIds.has(n.id)) continue;
+          const pos = n._absolutePosition || n.position;
+          const dx = pos.x + (n.width || 160) / 2 - cx;
+          const dy = pos.y + (n.height || 60) / 2 - cy;
+          scored.push({ id: n.id, dist: dx * dx + dy * dy });
+        }
+        // Partial sort: only need top `remaining` items
+        scored.sort((a, b) => a.dist - b.dist);
 
         const ids = new Set();
-        for (let i = 0; i < Math.min(remaining, candidates.length); i++) {
-          ids.add(candidates[i].id);
+        for (let i = 0; i < Math.min(remaining, scored.length); i++) {
+          ids.add(scored[i].id);
         }
         setSpatialIds((prev) => {
           if (prev.size !== ids.size) return ids;
@@ -291,10 +306,11 @@ export default function InfiniteCanvas({
           return prev;
         });
       }
-      rafId = requestAnimationFrame(update);
     };
-    rafId = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(rafId);
+    // Run once immediately, then throttle
+    update();
+    timer = setInterval(update, 500);
+    return () => clearInterval(timer);
   }, [allCustomNodes, pinnedNodeIds, domNodeLimit, baseStore]);
 
   // Convert canvasNodeTypes to ImageBitmaps and send to worker.

@@ -348,10 +348,11 @@ export default function useInfiniteCanvas({
     const nds = resolvedNodesRef.current.length > 0 ? resolvedNodesRef.current : nodesRef.current;
     // Iterate backwards so nodes rendered later (on top) are hit first.
     // Skip group nodes in first pass — prefer child nodes over their parent group.
+    // Skip _customRendered nodes — they are in the DOM overlay and handle their own events.
     let groupHit = null;
     for (let i = nds.length - 1; i >= 0; i--) {
       const n = nds[i];
-      if (n.hidden) continue;
+      if (n.hidden || n._customRendered) continue;
       const pos = n._absolutePosition || n.position;
       const nw = n.width || DEFAULT_NODE_WIDTH;
       const nh = n.height || DEFAULT_NODE_HEIGHT;
@@ -433,10 +434,15 @@ export default function useInfiniteCanvas({
   const findEdgeAt = useCallback((wx, wy) => {
     const cam = cameraRef.current;
     const hitDist = 8 / cam.zoom; // 8 screen pixels
+    // Build a quick lookup map to avoid O(n) find per edge
+    const nds = nodesRef.current;
+    const lookup = {};
+    for (let i = 0; i < nds.length; i++) lookup[nds[i].id] = nds[i];
+
     for (let i = edgesRef.current.length - 1; i >= 0; i--) {
       const edge = edgesRef.current[i];
-      const srcNode = nodesRef.current.find((n) => n.id === edge.source);
-      const tgtNode = nodesRef.current.find((n) => n.id === edge.target);
+      const srcNode = lookup[edge.source];
+      const tgtNode = lookup[edge.target];
       if (!srcNode || !tgtNode) continue;
 
       const srcW = srcNode.width || DEFAULT_NODE_WIDTH;
