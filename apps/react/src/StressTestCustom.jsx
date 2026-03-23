@@ -49,18 +49,17 @@ function WorkflowNode({ data, selected }) {
 
 const CUSTOM_NODE_TYPES = { workflow: WorkflowNode };
 
-// SVG bitmap for canvas-rendered workflow nodes (shown when not selected).
-// This replaces the plain white box with a styled card on the canvas.
+// SVG shell for canvas-rendered workflow nodes (no text — worker draws label on top).
 const WORKFLOW_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="70" viewBox="0 0 160 70">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8faff"/>
+      <stop offset="100%" stop-color="#eef4ff"/>
+    </linearGradient>
+  </defs>
   <rect x="1" y="1" width="158" height="68" rx="10" ry="10"
-        fill="#f0f9ff" stroke="#e2e8f0" stroke-width="1"/>
-  <rect x="1" y="1" width="40" height="68" rx="10" ry="10" fill="#dbeafe"/>
-  <rect x="21" y="1" width="20" height="68" fill="#dbeafe"/>
-  <text x="21" y="40" font-size="22" text-anchor="middle">&#x26A1;</text>
-  <text x="90" y="30" font-family="system-ui,sans-serif" font-size="13" font-weight="600"
-        fill="#1e293b" text-anchor="middle">Workflow</text>
-  <text x="90" y="48" font-family="system-ui,sans-serif" font-size="11"
-        fill="#64748b" text-anchor="middle">Canvas node</text>
+        fill="url(#bg)" stroke="#c7d8f0" stroke-width="1"/>
+  <rect x="1" y="1" width="6" height="68" rx="3" ry="3" fill="#3b82f6"/>
 </svg>`;
 
 const CANVAS_NODE_TYPES = { workflow: WORKFLOW_SVG };
