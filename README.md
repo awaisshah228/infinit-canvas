@@ -412,6 +412,16 @@ yarn build        # Build everything
 | `/stress` | Stress test -- 2000+ cards |
 | `/stress-flow` | Stress test -- 500-5000 nodes with edges |
 
+## Sponsor
+
+If this package saves you time, consider supporting its development:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/awaisshah228)
+
+**USDC (Solana):** `59FhVxK3uxABiJ9VzXtCoyCxqq4nhoZDBtUV3gEkiexo`
+
+<img src="https://raw.githubusercontent.com/awaisshah228/react-flow-avoid-nodes-routing/turbo-package/assets/solana-donate-qr.png" width="200" alt="Solana USDC QR Code" />
+
 ## License
 
 MIT
