@@ -447,6 +447,31 @@ self.onmessage = function(e) {
         scheduleEdgeRouting();
         break;
 
+      case 'nodeSelections':
+        // Lightweight selection update — avoids full node sync round-trip through React
+        if (nodeLookupDirty) rebuildNodeLookup();
+        var sels = data.selections; // [{ id, selected }]
+        for (var si = 0; si < sels.length; si++) {
+          var sel = sels[si];
+          var sNode = nodeLookup[sel.id];
+          if (sNode) sNode.selected = sel.selected;
+        }
+        scheduleRender();
+        break;
+
+      case 'edgeSelections':
+        var eSels = data.selections;
+        for (var ei = 0; ei < eSels.length; ei++) {
+          var eSel = eSels[ei];
+          var eTarget = null;
+          for (var ej = 0; ej < edges.length; ej++) {
+            if (edges[ej].id === eSel.id) { eTarget = edges[ej]; break; }
+          }
+          if (eTarget) eTarget.selected = eSel.selected;
+        }
+        scheduleRender();
+        break;
+
       case 'edges':
         edges = data.edges;
         edgeAdjacencyDirty = true;
