@@ -18,6 +18,9 @@ function measureHandleOffset(handleEl, zoom) {
   if (!nodeWrapper) return null;
   const nodeRect = nodeWrapper.getBoundingClientRect();
   const handleRect = handleEl.getBoundingClientRect();
+  // Bail out if either element has zero dimensions (not laid out yet —
+  // happens during React Strict Mode's double-invocation of effects).
+  if (!nodeRect.width || !nodeRect.height || !handleRect.width || !handleRect.height) return null;
   const z = zoom || 1;
   return {
     x: ((handleRect.left + handleRect.width / 2) - nodeRect.left) / z,
@@ -119,6 +122,16 @@ function Handle({
     if (handleRef.current) {
       offset = measureHandleOffset(handleRef.current, s.cameraRef?.current?.zoom);
     }
+
+    // If DOM measurement failed (e.g. element not laid out yet during React Strict Mode
+    // double-invocation), preserve existing cached position if available.
+    const existing = registry.get(key);
+    if (!offset && existing && existing.x !== undefined && existing.y !== undefined) {
+      // Just update the el reference, keep cached x/y
+      existing.el = handleRef.current;
+      return;
+    }
+
     if (!offset) {
       offset = getPositionOffset(position, nw || 160, nh || 60);
     }
@@ -148,13 +161,16 @@ function Handle({
     }
 
     return () => {
-      // Cleanup: just remove from registry. Don't call onNodesChange or syncNodesToWorker
-      // synchronously — that causes hangs when many handles unmount at once (virtualization).
-      // The registry cleanup is enough; positions will be recalculated when nodes re-enter viewport.
+      // When a Handle unmounts (e.g. node demoted during virtualization),
+      // preserve the cached x/y in the registry so edges still resolve
+      // correct positions. Only clear the stale DOM element reference.
       const st = getStoreRef.current();
       const registry = st.handleRegistryRef?.current;
       const key = `${nodeId}__${id || `${type}_${position}`}`;
-      registry?.delete(key);
+      const entry = registry?.get(key);
+      if (entry) {
+        entry.el = null;
+      }
     };
   }, [nodeId, id, type, position]);
 
