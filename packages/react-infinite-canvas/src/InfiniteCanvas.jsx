@@ -58,6 +58,8 @@ export default function InfiniteCanvas({
   // Custom types
   nodeTypes,
   edgeTypes,
+  // Canvas-rendered custom node bitmaps: { [type]: svgString | HTMLImageElement | HTMLCanvasElement | ImageBitmap }
+  canvasNodeTypes,
 
   // Appearance
   dark, gridSize, width = '100%', height = '420px',
@@ -206,6 +208,56 @@ export default function InfiniteCanvas({
     onSelectionDragStart, onSelectionDrag, onSelectionDragStop,
     edgeRouting,
   });
+
+  // Convert canvasNodeTypes (SVG strings, images, etc.) to ImageBitmaps and send to worker.
+  // Worker uses these to drawImage() instead of drawing default boxes for typed nodes.
+  useEffect(() => {
+    if (!canvasNodeTypes || !baseStore.workerRef.current) return;
+    let cancelled = false;
+
+    async function convertAndSend() {
+      const bitmaps = {};
+      const transferList = [];
+
+      for (const [type, src] of Object.entries(canvasNodeTypes)) {
+        try {
+          let bitmap;
+          if (src instanceof ImageBitmap) {
+            bitmap = src;
+          } else if (typeof src === 'string') {
+            // SVG string → ImageBitmap
+            const blob = new Blob([src], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.src = url;
+            await img.decode();
+            URL.revokeObjectURL(url);
+            bitmap = await createImageBitmap(img);
+          } else if (src instanceof HTMLImageElement) {
+            bitmap = await createImageBitmap(src);
+          } else if (src instanceof HTMLCanvasElement) {
+            bitmap = await createImageBitmap(src);
+          }
+          if (bitmap && !cancelled) {
+            bitmaps[type] = bitmap;
+            transferList.push(bitmap);
+          }
+        } catch (e) {
+          console.warn(`[InfiniteCanvas] Failed to convert canvasNodeType "${type}":`, e);
+        }
+      }
+
+      if (!cancelled && Object.keys(bitmaps).length > 0) {
+        baseStore.workerRef.current?.postMessage(
+          { type: 'nodeTypeBitmaps', data: { bitmaps } },
+          transferList
+        );
+      }
+    }
+
+    convertAndSend();
+    return () => { cancelled = true; };
+  }, [canvasNodeTypes, baseStore.workerRef]);
 
   // If a parent InfiniteCanvasProvider exists (Zustand store), sync data into it
   // so hooks called above <InfiniteCanvas> (e.g. useAutoLayout, useReactFlow) see current data.

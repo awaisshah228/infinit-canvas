@@ -252,6 +252,8 @@ export interface InfiniteCanvasProps {
   // Custom types
   nodeTypes?: NodeTypes;
   edgeTypes?: EdgeTypes;
+  /** Canvas-rendered bitmaps per node type. Accepts SVG strings, HTMLImageElement, HTMLCanvasElement, or ImageBitmap. */
+  canvasNodeTypes?: Record<string, string | ImageBitmap | HTMLImageElement | HTMLCanvasElement>;
 
   // Appearance
   dark?: boolean;

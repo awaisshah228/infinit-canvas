@@ -22,6 +22,10 @@ var connectingLine = null; // { from: {x,y}, to: {x,y} }
 // Selection box (null when not selecting)
 var selectionBox = null; // { startWorld: {x,y}, endWorld: {x,y} }
 
+// Custom node type bitmaps: { [type]: ImageBitmap }
+// When a node has a type matching a key here, drawImage is used instead of default box.
+var nodeTypeBitmaps = {};
+
 // Default node dimensions
 var DEFAULT_NODE_WIDTH = 160;
 var DEFAULT_NODE_HEIGHT = 60;
@@ -503,6 +507,12 @@ self.onmessage = function(e) {
         if (data.size) bgSize = data.size;
         bgColor = data.color || null;
         gridCacheDirty = true;
+        scheduleRender();
+        break;
+
+      case 'nodeTypeBitmaps':
+        // Receive ImageBitmaps for custom node types
+        nodeTypeBitmaps = data.bitmaps || {};
         scheduleRender();
         break;
 
@@ -1495,6 +1505,23 @@ function render() {
     var showShadowN = camera.zoom > 0.08 && visNodeCount < 200;
     var showHandles = camera.zoom > 0.2 && visNodeCount < 300;
 
+    // Split nodes into bitmap-rendered and default-rendered
+    var hasBitmaps = Object.keys(nodeTypeBitmaps).length > 0;
+    var defaultNodes = visibleNodes;
+    var bitmapNodes = [];
+    if (hasBitmaps) {
+      defaultNodes = [];
+      for (var sni = 0; sni < visNodeCount; sni++) {
+        var sn = visibleNodes[sni];
+        if (sn.type && nodeTypeBitmaps[sn.type]) {
+          bitmapNodes.push(sn);
+        } else {
+          defaultNodes.push(sn);
+        }
+      }
+    }
+    var defCount = defaultNodes.length;
+
     // PASS 1: Shadows (batched, expensive — skip when many nodes)
     if (showShadowN) {
       ctx.shadowColor = COLORS.nodeShadow;
@@ -1502,8 +1529,8 @@ function render() {
       ctx.shadowOffsetY = 2;
       ctx.fillStyle = COLORS.nodeBg;
       ctx.beginPath();
-      for (var nsi = 0; nsi < visNodeCount; nsi++) {
-        var ns = visibleNodes[nsi];
+      for (var nsi = 0; nsi < defCount; nsi++) {
+        var ns = defaultNodes[nsi];
         ctx.roundRect(getNodePos(ns).x, getNodePos(ns).y, ns.width || DEFAULT_NODE_WIDTH, ns.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
       }
       ctx.fill();
@@ -1516,8 +1543,8 @@ function render() {
     if (!showShadowN) {
       ctx.fillStyle = COLORS.nodeBg;
       ctx.beginPath();
-      for (var nbi = 0; nbi < visNodeCount; nbi++) {
-        var nb = visibleNodes[nbi];
+      for (var nbi = 0; nbi < defCount; nbi++) {
+        var nb = defaultNodes[nbi];
         ctx.roundRect(getNodePos(nb).x, getNodePos(nb).y, nb.width || DEFAULT_NODE_WIDTH, nb.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
       }
       ctx.fill();
@@ -1527,20 +1554,20 @@ function render() {
     ctx.strokeStyle = COLORS.nodeBorder;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (var nbi2 = 0; nbi2 < visNodeCount; nbi2++) {
-      var nb2 = visibleNodes[nbi2];
+    for (var nbi2 = 0; nbi2 < defCount; nbi2++) {
+      var nb2 = defaultNodes[nbi2];
       if (nb2.selected) continue;
       ctx.roundRect(getNodePos(nb2).x, getNodePos(nb2).y, nb2.width || DEFAULT_NODE_WIDTH, nb2.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
     }
     ctx.stroke();
 
-    // Selected node borders
+    // Selected node borders (default nodes only)
     var hasSelected = false;
     ctx.strokeStyle = COLORS.nodeSelectedBorder;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    for (var nbs = 0; nbs < visNodeCount; nbs++) {
-      var nbs2 = visibleNodes[nbs];
+    for (var nbs = 0; nbs < defCount; nbs++) {
+      var nbs2 = defaultNodes[nbs];
       if (!nbs2.selected) continue;
       hasSelected = true;
       ctx.roundRect(getNodePos(nbs2).x, getNodePos(nbs2).y, nbs2.width || DEFAULT_NODE_WIDTH, nbs2.height || DEFAULT_NODE_HEIGHT, NODE_RADIUS);
@@ -1553,8 +1580,8 @@ function render() {
       ctx.font = FONT_NODE;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      for (var nti = 0; nti < visNodeCount; nti++) {
-        var nt = visibleNodes[nti];
+      for (var nti = 0; nti < defCount; nti++) {
+        var nt = defaultNodes[nti];
         if (!nt.data || !nt.data.label) continue;
         var ntw = nt.width || DEFAULT_NODE_WIDTH;
         var nth2 = nt.height || DEFAULT_NODE_HEIGHT;
@@ -1564,7 +1591,25 @@ function render() {
       ctx.textBaseline = 'alphabetic';
     }
 
-    // PASS 5: Handles (batched — fill all, then stroke all)
+    // PASS B: Bitmap nodes — drawImage for each node with a matching bitmap
+    for (var bni = 0; bni < bitmapNodes.length; bni++) {
+      var bn = bitmapNodes[bni];
+      var bnPos = getNodePos(bn);
+      var bnW = bn.width || DEFAULT_NODE_WIDTH;
+      var bnH = bn.height || DEFAULT_NODE_HEIGHT;
+      var bitmap = nodeTypeBitmaps[bn.type];
+      ctx.drawImage(bitmap, bnPos.x, bnPos.y, bnW, bnH);
+      // Draw selection border on top of bitmap
+      if (bn.selected) {
+        ctx.strokeStyle = COLORS.nodeSelectedBorder;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(bnPos.x, bnPos.y, bnW, bnH, NODE_RADIUS);
+        ctx.stroke();
+      }
+    }
+
+    // PASS 5: Handles (batched — fill all, then stroke all) — for ALL nodes
     if (showHandles) {
       var allHandleXYs = [];
       for (var nhi = 0; nhi < visNodeCount; nhi++) {
