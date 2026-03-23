@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "turbo": "^2.4.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.0.0"
   }
 }

@@ -6,4 +6,7 @@ dist/
 
 # Local reference copies
 excalidraw/
+xyflow/
+adaptagrams/
+web/
 .next/
