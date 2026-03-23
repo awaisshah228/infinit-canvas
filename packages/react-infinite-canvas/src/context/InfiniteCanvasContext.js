@@ -1,12 +1,12 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useRef, useCallback } from 'react';
 import { createStore, useStore as useZustandStore } from 'zustand';
 
 const InfiniteCanvasContext = createContext(null);
 
-// Create a default Zustand store for InfiniteCanvasProvider
+// Zustand store for InfiniteCanvasProvider — enables subscription-based
+// updates so hooks like useStore/useAutoLayout re-render when data changes.
 export function createCanvasStore(initialState = {}) {
-  return createStore((set, get) => ({
-    // ── Core state ──
+  return createStore((_set, get) => ({
     nodes: [],
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
@@ -16,8 +16,6 @@ export function createCanvasStore(initialState = {}) {
     width: 0,
     height: 0,
     domNode: null,
-
-    // ── Refs (mutable, not tracked by Zustand) ──
     nodesRef: { current: [] },
     edgesRef: { current: [] },
     cameraRef: { current: { x: 0, y: 0, zoom: 1 } },
@@ -25,55 +23,77 @@ export function createCanvasStore(initialState = {}) {
     workerRef: { current: null },
     onNodesChangeRef: { current: null },
     onEdgesChangeRef: { current: null },
-
-    // ── Listener sets ──
     viewportListeners: new Set(),
     selectionListeners: new Set(),
-
-    // ── Portal refs ──
     edgeLabelContainerRef: { current: null },
     viewportPortalRef: { current: null },
-
-    // ── Methods ──
     screenToWorld: (x, y) => {
       const cam = get().cameraRef.current;
       return { x: (x - cam.x) / cam.zoom, y: (y - cam.y) / cam.zoom };
     },
     sendCamera: () => {
       const state = get();
-      state.workerRef.current?.postMessage({ type: 'camera', data: state.cameraRef.current });
+      state.workerRef.current?.postMessage({ type: 'camera', data: { camera: { ...state.cameraRef.current } } });
     },
-
-    // ── Zustand setters ──
-    setNodes: (nodes) => set({ nodes }),
-    setEdges: (edges) => set({ edges }),
-    setViewport: (viewport) => set({ viewport }),
-
-    // Apply overrides from InfiniteCanvas
     ...initialState,
   }));
 }
 
-// Use Zustand store with selector support
-export function useCanvasStore(selector) {
-  const store = useContext(InfiniteCanvasContext);
-  if (!store) {
+/**
+ * useCanvasStore — works with both:
+ *   - Zustand stores (from InfiniteCanvasProvider) → useSyncExternalStore with cached selectors
+ *   - Plain objects (from InfiniteCanvas context)  → direct selector call with caching
+ *
+ * The cached selector wraps the user's selector so that structurally-equal results
+ * (per equalityFn) return the same reference, preventing useSyncExternalStore from
+ * seeing different snapshots and causing infinite re-renders.
+ */
+export function useCanvasStore(selector, equalityFn) {
+  const ctx = useContext(InfiniteCanvasContext);
+  if (!ctx) {
     throw new Error('useCanvasStore must be used within <InfiniteCanvas> or <InfiniteCanvasProvider>');
   }
-  // If no selector, return the full store state
-  if (!selector) {
-    return useZustandStore(store);
+
+  const isZustand = typeof ctx.getState === 'function' && typeof ctx.subscribe === 'function';
+
+  // Keep latest selector/equalityFn in refs for the stable callback
+  const selectorRef = useRef(selector);
+  const equalityFnRef = useRef(equalityFn);
+  const cacheRef = useRef(undefined);
+  selectorRef.current = selector;
+  equalityFnRef.current = equalityFn;
+
+  // Stable selector that caches results using the equality function.
+  // This prevents useSyncExternalStore infinite loops when selectors
+  // return new objects that are structurally equal.
+  const cachedSelector = useCallback((state) => {
+    const sel = selectorRef.current;
+    if (!sel) return state;
+    const next = sel(state);
+    const eq = equalityFnRef.current || Object.is;
+    if (cacheRef.current !== undefined && eq(cacheRef.current, next)) {
+      return cacheRef.current;
+    }
+    cacheRef.current = next;
+    return next;
+  }, []);
+
+  if (isZustand) {
+    return useZustandStore(ctx, selector ? cachedSelector : undefined);
   }
-  return useZustandStore(store, selector);
+
+  // Plain object context path
+  if (!selector) return ctx;
+  return cachedSelector(ctx);
 }
 
-// Raw store access (for imperative use)
 export function useCanvasStoreApi() {
-  const store = useContext(InfiniteCanvasContext);
-  if (!store) {
+  const ctx = useContext(InfiniteCanvasContext);
+  if (!ctx) {
     throw new Error('useCanvasStoreApi must be used within <InfiniteCanvas> or <InfiniteCanvasProvider>');
   }
-  return store;
+  if (typeof ctx.getState === 'function') return ctx;
+  return { getState: () => ctx, setState: () => {}, subscribe: () => () => {} };
 }
 
 export default InfiniteCanvasContext;

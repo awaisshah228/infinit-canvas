@@ -1,0 +1,28 @@
+{
+  "name": "auto-layout-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^1.1.8",
+    "@infinit-canvas/react": "*",
+    "d3-hierarchy": "^3.1.2",
+    "elkjs": "^0.9.1",
+    "leva": "^0.9.35",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/d3-hierarchy": "^3.1.7",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.5.2",
+    "typescript": "^5.0.2",
+    "vite": "^6.3.5"
+  }
+}

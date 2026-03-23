@@ -490,7 +490,7 @@ export declare function useKeyPress(keyOrKeys: string | string[]): boolean;
 export declare function useUpdateNodeInternals(): (nodeId: string | string[]) => void;
 export declare function useNodesInitialized(options?: { includeHiddenNodes?: boolean }): boolean;
 export declare function useInternalNode(nodeId: string): Node | undefined;
-export declare function useStore<T>(selector: (state: InfiniteCanvasState) => T): T;
+export declare function useStore<T>(selector: (state: InfiniteCanvasState) => T, equalityFn?: (a: T, b: T) => boolean): T;
 export declare function useStoreApi(): { getState: () => InfiniteCanvasState; setState: (partial: Partial<InfiniteCanvasState>) => void; subscribe: (listener: (state: InfiniteCanvasState) => void) => () => void };
 
 // Undo/Redo

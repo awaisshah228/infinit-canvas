@@ -356,9 +356,23 @@ export default function useInfiniteCanvas({
         return { id: h.id || null, type: h.type, x: pos.x, y: pos.y };
       });
     }
+    // Respect node.targetPosition / node.sourcePosition (set by layout algorithms)
+    const tPos = node.targetPosition || 'left';
+    const sPos = node.sourcePosition || 'right';
+    const posToCoords = (pos) => {
+      switch (pos) {
+        case 'top': return { x: node.position.x + nw / 2, y: node.position.y };
+        case 'bottom': return { x: node.position.x + nw / 2, y: node.position.y + nh };
+        case 'left': return { x: node.position.x, y: node.position.y + nh / 2 };
+        case 'right': return { x: node.position.x + nw, y: node.position.y + nh / 2 };
+        default: return { x: node.position.x + nw, y: node.position.y + nh / 2 };
+      }
+    };
+    const tc = posToCoords(tPos);
+    const sc = posToCoords(sPos);
     return [
-      { id: null, type: 'target', x: node.position.x, y: node.position.y + nh / 2 },
-      { id: null, type: 'source', x: node.position.x + nw, y: node.position.y + nh / 2 },
+      { id: null, type: 'target', x: tc.x, y: tc.y },
+      { id: null, type: 'source', x: sc.x, y: sc.y },
     ];
   }, [resolveHandlePos]);
 

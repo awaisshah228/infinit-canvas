@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect, useContext } from 'react';
 import useInfiniteCanvas from './useInfiniteCanvas.js';
 import InfiniteCanvasContext, { createCanvasStore } from './context/InfiniteCanvasContext.js';
 import NodeWrapper from './components/NodeWrapper/index.jsx';
@@ -28,6 +28,28 @@ const builtInEdgeTypes = {
   straight: StraightEdge,
   simplebezier: SimpleBezierEdge,
 };
+
+const DEFAULT_NODE_WIDTH = 160;
+const DEFAULT_NODE_HEIGHT = 60;
+
+// Ensure every node has `measured` dimensions so layout algorithms (dagre, elk, etc.)
+// that rely on node.measured.width/height work correctly with canvas-rendered nodes.
+// Skips allocation when all nodes already have measured — O(n) check only.
+function ensureMeasured(nodeList) {
+  let needsPatch = false;
+  for (let i = 0; i < nodeList.length; i++) {
+    const n = nodeList[i];
+    if (!n.measured || n.measured.width == null || n.measured.height == null) {
+      needsPatch = true;
+      break;
+    }
+  }
+  if (!needsPatch) return nodeList;
+  return nodeList.map((n) => {
+    if (n.measured?.width != null && n.measured?.height != null) return n;
+    return { ...n, measured: { width: n.width || DEFAULT_NODE_WIDTH, height: n.height || DEFAULT_NODE_HEIGHT } };
+  });
+}
 
 export default function InfiniteCanvas({
   // Data
@@ -98,6 +120,9 @@ export default function InfiniteCanvas({
   // Merge built-in types with user-provided types (user types override built-ins)
   const customNodeTypes = useMemo(() => ({ ...builtInNodeTypes, ...nodeTypes }), [nodeTypes]);
   const customEdgeTypes = useMemo(() => ({ ...builtInEdgeTypes, ...edgeTypes }), [edgeTypes]);
+
+  // Nodes with guaranteed `measured` dimensions for layout algorithms
+  const measuredNodes = useMemo(() => ensureMeasured(nodes), [nodes]);
 
   // Compute which nodes/edges have React renderers
   // Nodes/edges WITHOUT a type stay canvas-rendered (worker handles them)
@@ -172,29 +197,44 @@ export default function InfiniteCanvas({
     edgeRouting,
   });
 
-  // Create a Zustand store that wraps the internal canvas state
-  const zustandStoreRef = useRef(null);
-  if (!zustandStoreRef.current) {
-    zustandStoreRef.current = createCanvasStore({
-      ...baseStore,
-      edgeLabelContainerRef,
-      viewportPortalRef,
-    });
-  }
-
-  // Sync the Zustand store whenever baseStore/nodes/edges change
+  // If a parent InfiniteCanvasProvider exists (Zustand store), sync data into it
+  // so hooks called above <InfiniteCanvas> (e.g. useAutoLayout, useReactFlow) see current data.
+  const parentCtx = useContext(InfiniteCanvasContext);
+  const isParentZustand = parentCtx && typeof parentCtx.getState === 'function';
   useEffect(() => {
-    zustandStoreRef.current.setState({
-      ...baseStore,
-      edgeLabelContainerRef,
-      viewportPortalRef,
-      nodes,
-      edges,
-      viewport: baseStore.cameraRef.current,
-      minZoom: baseStore.zoomMin || 0.1,
-      maxZoom: baseStore.zoomMax || 5,
+    if (!isParentZustand) return;
+    // Defer setState to avoid triggering Zustand subscribers synchronously
+    // during React's commit phase, which causes infinite update loops.
+    queueMicrotask(() => {
+      parentCtx.setState({
+        nodes: measuredNodes,
+        edges,
+        nodesRef: baseStore.nodesRef,
+        edgesRef: baseStore.edgesRef,
+        onNodesChangeRef: baseStore.onNodesChangeRef,
+        onEdgesChangeRef: baseStore.onEdgesChangeRef,
+        cameraRef: baseStore.cameraRef,
+        wrapRef: baseStore.wrapRef,
+        workerRef: baseStore.workerRef,
+      });
     });
-  }, [baseStore, nodes, edges]);
+  }, [isParentZustand, measuredNodes, edges, baseStore, parentCtx]);
+
+  // Extend store with portal refs and full nodes/edges (including custom).
+  // This is a plain object (not Zustand) — avoids infinite loops from setState.
+  const store = useMemo(() => ({
+    ...baseStore,
+    edgeLabelContainerRef,
+    viewportPortalRef,
+    get nodes() { return measuredNodes; },
+    get edges() { return edges; },
+    get viewport() { return baseStore.cameraRef.current; },
+    get minZoom() { return baseStore.zoomMin || 0.1; },
+    get maxZoom() { return baseStore.zoomMax || 5; },
+    get domNode() { return baseStore.wrapRef.current; },
+    get width() { return baseStore.wrapRef.current?.clientWidth || 0; },
+    get height() { return baseStore.wrapRef.current?.clientHeight || 0; },
+  }), [baseStore, measuredNodes, edges]);
 
 
   // Refs for direct DOM transform updates (bypass React re-renders during pan/zoom)
@@ -266,7 +306,7 @@ export default function InfiniteCanvas({
   const hasCustomEdges = customEdges.length > 0;
 
   return (
-    <InfiniteCanvasContext.Provider value={zustandStoreRef.current}>
+    <InfiniteCanvasContext.Provider value={store}>
       <div
         ref={wrapRef}
         className={`ric-wrap ${className}`}
@@ -391,8 +431,6 @@ export default function InfiniteCanvas({
 }
 
 export function InfiniteCanvasProvider({ children }) {
-  // Provide a default Zustand store so hooks like useReactFlow() work
-  // outside of <InfiniteCanvas> but inside <InfiniteCanvasProvider>.
   const storeRef = useRef(null);
   if (!storeRef.current) {
     storeRef.current = createCanvasStore();

@@ -3,115 +3,119 @@ import { useCanvasStore, useCanvasStoreApi } from '../context/InfiniteCanvasCont
 import { getNodesBounds, getViewportForBounds, getConnectedEdges } from '../utils/graph.js';
 
 // ── useReactFlow ─────────────────────────────────────────────────
-// Imperative API similar to xyflow's useReactFlow
+// Imperative API similar to xyflow's useReactFlow.
+// Uses useCanvasStoreApi (imperative) instead of useCanvasStore (subscription)
+// to avoid re-rendering on every store change — this hook only needs refs.
 export function useReactFlow() {
-  const store = useCanvasStore();
+  const storeApi = useCanvasStoreApi();
+  // Always read latest state at call time, never capture a stale snapshot
+  const s = useCallback(() => typeof storeApi.getState === 'function' ? storeApi.getState() : storeApi, [storeApi]);
 
-  const getNodes = useCallback(() => [...store.nodesRef.current], [store]);
-  const getEdges = useCallback(() => [...store.edgesRef.current], [store]);
-  const getNode = useCallback((id) => store.nodesRef.current.find((n) => n.id === id), [store]);
-  const getEdge = useCallback((id) => store.edgesRef.current.find((e) => e.id === id), [store]);
+  const getNodes = useCallback(() => [...s().nodesRef.current], [s]);
+  const getEdges = useCallback(() => [...s().edgesRef.current], [s]);
+  const getNode = useCallback((id) => s().nodesRef.current.find((n) => n.id === id), [s]);
+  const getEdge = useCallback((id) => s().edgesRef.current.find((e) => e.id === id), [s]);
 
   const setNodes = useCallback((nodesOrUpdater) => {
     if (typeof nodesOrUpdater === 'function') {
-      const next = nodesOrUpdater(store.nodesRef.current);
-      store.onNodesChangeRef.current?.([
-        ...store.nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
+      const next = nodesOrUpdater(s().nodesRef.current);
+      s().onNodesChangeRef.current?.([
+        ...s().nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
         ...next.map((item) => ({ type: 'add', item })),
       ]);
     } else {
-      store.onNodesChangeRef.current?.([
-        ...store.nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
+      s().onNodesChangeRef.current?.([
+        ...s().nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
         ...nodesOrUpdater.map((item) => ({ type: 'add', item })),
       ]);
     }
-  }, [store]);
+  }, [s]);
 
   const setEdges = useCallback((edgesOrUpdater) => {
     if (typeof edgesOrUpdater === 'function') {
-      const next = edgesOrUpdater(store.edgesRef.current);
-      store.onEdgesChangeRef.current?.([
-        ...store.edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
+      const next = edgesOrUpdater(s().edgesRef.current);
+      s().onEdgesChangeRef.current?.([
+        ...s().edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
         ...next.map((item) => ({ type: 'add', item })),
       ]);
     } else {
-      store.onEdgesChangeRef.current?.([
-        ...store.edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
+      s().onEdgesChangeRef.current?.([
+        ...s().edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
         ...edgesOrUpdater.map((item) => ({ type: 'add', item })),
       ]);
     }
-  }, [store]);
+  }, [s]);
 
   const addNodes = useCallback((newNodes) => {
     const arr = Array.isArray(newNodes) ? newNodes : [newNodes];
-    store.onNodesChangeRef.current?.(arr.map((item) => ({ type: 'add', item })));
-  }, [store]);
+    s().onNodesChangeRef.current?.(arr.map((item) => ({ type: 'add', item })));
+  }, [s]);
 
   const addEdges = useCallback((newEdges) => {
     const arr = Array.isArray(newEdges) ? newEdges : [newEdges];
-    store.onEdgesChangeRef.current?.(arr.map((item) => ({ type: 'add', item })));
-  }, [store]);
+    s().onEdgesChangeRef.current?.(arr.map((item) => ({ type: 'add', item })));
+  }, [s]);
 
   const deleteElements = useCallback(({ nodes: delNodes = [], edges: delEdges = [] }) => {
-    if (delNodes.length && store.onNodesChangeRef.current) {
-      store.onNodesChangeRef.current(delNodes.map((n) => ({ id: n.id, type: 'remove' })));
+    if (delNodes.length && s().onNodesChangeRef.current) {
+      s().onNodesChangeRef.current(delNodes.map((n) => ({ id: n.id, type: 'remove' })));
       // Also remove connected edges
-      const connectedEdges = getConnectedEdges(delNodes, store.edgesRef.current);
-      if (connectedEdges.length && store.onEdgesChangeRef.current) {
-        store.onEdgesChangeRef.current(connectedEdges.map((e) => ({ id: e.id, type: 'remove' })));
+      const connectedEdges = getConnectedEdges(delNodes, s().edgesRef.current);
+      if (connectedEdges.length && s().onEdgesChangeRef.current) {
+        s().onEdgesChangeRef.current(connectedEdges.map((e) => ({ id: e.id, type: 'remove' })));
       }
     }
-    if (delEdges.length && store.onEdgesChangeRef.current) {
-      store.onEdgesChangeRef.current(delEdges.map((e) => ({ id: e.id, type: 'remove' })));
+    if (delEdges.length && s().onEdgesChangeRef.current) {
+      s().onEdgesChangeRef.current(delEdges.map((e) => ({ id: e.id, type: 'remove' })));
     }
-  }, [store]);
+  }, [s]);
 
   const getViewport = useCallback(() => {
-    const cam = store.cameraRef.current;
+    const cam = s().cameraRef.current;
     return { x: cam.x, y: cam.y, zoom: cam.zoom };
-  }, [store]);
+  }, [s]);
 
   // ── Animated transition helper ──
   const animateRef = useRef(null);
   const animateTo = useCallback((target, duration) => {
     if (animateRef.current) cancelAnimationFrame(animateRef.current);
     if (!duration || duration <= 0) {
-      store.cameraRef.current = { ...target };
-      store.sendCamera();
+      s().cameraRef.current = { ...target };
+      s().sendCamera();
       return;
     }
-    const start = { ...store.cameraRef.current };
+    const start = { ...s().cameraRef.current };
     const t0 = performance.now();
     const tick = (now) => {
       const elapsed = now - t0;
       const progress = Math.min(elapsed / duration, 1);
       // ease-out cubic
       const t = 1 - Math.pow(1 - progress, 3);
-      store.cameraRef.current = {
+      s().cameraRef.current = {
         x: start.x + (target.x - start.x) * t,
         y: start.y + (target.y - start.y) * t,
         zoom: start.zoom + (target.zoom - start.zoom) * t,
       };
-      store.sendCamera();
+      s().sendCamera();
       if (progress < 1) animateRef.current = requestAnimationFrame(tick);
     };
     animateRef.current = requestAnimationFrame(tick);
-  }, [store]);
+  }, [s]);
 
   const setViewport = useCallback((viewport, options) => {
     const target = {
-      x: viewport.x ?? store.cameraRef.current.x,
-      y: viewport.y ?? store.cameraRef.current.y,
-      zoom: viewport.zoom ?? store.cameraRef.current.zoom,
+      x: viewport.x ?? s().cameraRef.current.x,
+      y: viewport.y ?? s().cameraRef.current.y,
+      zoom: viewport.zoom ?? s().cameraRef.current.zoom,
     };
     animateTo(target, options?.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
-  const getZoom = useCallback(() => store.cameraRef.current.zoom, [store]);
+  const getZoom = useCallback(() => s().cameraRef.current.zoom, [s]);
 
   const zoomIn = useCallback((options) => {
-    const cam = store.cameraRef.current;
-    const wrap = store.wrapRef.current;
+    const cam = s().cameraRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const mx = rect.width / 2;
@@ -120,14 +124,14 @@ export function useReactFlow() {
     const target = {
       x: mx - (mx - cam.x) * factor,
       y: my - (my - cam.y) * factor,
-      zoom: Math.min(store.zoomMax, cam.zoom * factor),
+      zoom: Math.min(s().zoomMax, cam.zoom * factor),
     };
     animateTo(target, options?.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
   const zoomOut = useCallback((options) => {
-    const cam = store.cameraRef.current;
-    const wrap = store.wrapRef.current;
+    const cam = s().cameraRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const mx = rect.width / 2;
@@ -136,19 +140,19 @@ export function useReactFlow() {
     const target = {
       x: mx - (mx - cam.x) * factor,
       y: my - (my - cam.y) * factor,
-      zoom: Math.max(store.zoomMin, cam.zoom * factor),
+      zoom: Math.max(s().zoomMin, cam.zoom * factor),
     };
     animateTo(target, options?.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
   const zoomTo = useCallback((zoom, options) => {
-    const cam = store.cameraRef.current;
-    const wrap = store.wrapRef.current;
+    const cam = s().cameraRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const mx = rect.width / 2;
     const my = rect.height / 2;
-    const newZoom = Math.min(store.zoomMax, Math.max(store.zoomMin, zoom));
+    const newZoom = Math.min(s().zoomMax, Math.max(s().zoomMin, zoom));
     const factor = newZoom / cam.zoom;
     const target = {
       x: mx - (mx - cam.x) * factor,
@@ -156,12 +160,12 @@ export function useReactFlow() {
       zoom: newZoom,
     };
     animateTo(target, options?.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
   const fitView = useCallback((options = {}) => {
-    const nodes = store.nodesRef.current;
+    const nodes = s().nodesRef.current;
     if (!nodes.length) return;
-    const wrap = store.wrapRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const padding = options.padding ?? 0.1;
@@ -174,10 +178,10 @@ export function useReactFlow() {
     if (options.maxZoom) vp.zoom = Math.min(vp.zoom, options.maxZoom);
     if (options.minZoom) vp.zoom = Math.max(vp.zoom, options.minZoom);
     animateTo(vp, options.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
   const fitBounds = useCallback((bounds, options = {}) => {
-    const wrap = store.wrapRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const padding = options.padding ?? 0.1;
@@ -185,50 +189,50 @@ export function useReactFlow() {
     if (options.maxZoom) vp.zoom = Math.min(vp.zoom, options.maxZoom);
     if (options.minZoom) vp.zoom = Math.max(vp.zoom, options.minZoom);
     animateTo(vp, options.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
   const setCenter = useCallback((x, y, options = {}) => {
-    const wrap = store.wrapRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
-    const zoom = options.zoom ?? store.cameraRef.current.zoom;
+    const zoom = options.zoom ?? s().cameraRef.current.zoom;
     const target = {
       x: rect.width / 2 - x * zoom,
       y: rect.height / 2 - y * zoom,
       zoom,
     };
     animateTo(target, options.duration);
-  }, [store, animateTo]);
+  }, [s, animateTo]);
 
   const toObject = useCallback(() => {
     return {
-      nodes: [...store.nodesRef.current],
-      edges: [...store.edgesRef.current],
-      viewport: { ...store.cameraRef.current },
+      nodes: [...s().nodesRef.current],
+      edges: [...s().edgesRef.current],
+      viewport: { ...s().cameraRef.current },
     };
-  }, [store]);
+  }, [s]);
 
   const screenToFlowPosition = useCallback((clientPos) => {
-    return store.screenToWorld(clientPos.x, clientPos.y);
-  }, [store]);
+    return s().screenToWorld(clientPos.x, clientPos.y);
+  }, [s]);
 
   const flowToScreenPosition = useCallback((flowPos) => {
-    const cam = store.cameraRef.current;
-    const wrap = store.wrapRef.current;
+    const cam = s().cameraRef.current;
+    const wrap = s().wrapRef.current;
     if (!wrap) return { x: 0, y: 0 };
     const rect = wrap.getBoundingClientRect();
     return {
       x: flowPos.x * cam.zoom + cam.x + rect.left,
       y: flowPos.y * cam.zoom + cam.y + rect.top,
     };
-  }, [store]);
+  }, [s]);
 
   const updateNodeData = useCallback((nodeId, dataUpdate) => {
-    const node = store.nodesRef.current.find((n) => n.id === nodeId);
+    const node = s().nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return;
     const newData = typeof dataUpdate === 'function' ? dataUpdate(node.data) : { ...node.data, ...dataUpdate };
-    store.onNodesChangeRef.current?.([{ id: nodeId, type: 'replace', item: { ...node, data: newData } }]);
-  }, [store]);
+    s().onNodesChangeRef.current?.([{ id: nodeId, type: 'replace', item: { ...node, data: newData } }]);
+  }, [s]);
 
   return {
     getNodes, getEdges, getNode, getEdge,
@@ -320,7 +324,7 @@ export function useOnViewportChange({ onChange, onStart, onEnd }) {
     };
     store.viewportListeners.add(cb);
     return () => store.viewportListeners.delete(cb);
-  }, [store]);
+  }, [s]);
 }
 
 // ── useOnSelectionChange ─────────────────────────────────────────
@@ -333,7 +337,7 @@ export function useOnSelectionChange({ onChange }) {
     const cb = (data) => { onChangeRef.current?.(data); };
     store.selectionListeners.add(cb);
     return () => store.selectionListeners.delete(cb);
-  }, [store]);
+  }, [s]);
 }
 
 // ── useKeyPress ──────────────────────────────────────────────────
@@ -365,17 +369,16 @@ export function useUpdateNodeInternals() {
     // Simply re-post current nodes to worker to force re-render
     store.workerRef.current?.postMessage({
       type: 'nodes',
-      data: { nodes: [...store.nodesRef.current] },
+      data: { nodes: [...s().nodesRef.current] },
     });
-  }, [store]);
+  }, [s]);
 }
 
 // ── useNodesInitialized ──────────────────────────────────────────
 // Returns true when all nodes have been rendered at least once
+const nodesInitializedSelector = (state) => state.nodes?.length > 0;
 export function useNodesInitialized(options = {}) {
-  const store = useCanvasStore();
-  // In canvas-based rendering, nodes are "initialized" as soon as they're synced to worker
-  return store.nodes.length > 0;
+  return useCanvasStore(nodesInitializedSelector);
 }
 
 // ── useInternalNode ──────────────────────────────────────────────
@@ -389,8 +392,9 @@ export function useInternalNode(nodeId) {
 
 // ── useStore ─────────────────────────────────────────────────────
 // Direct access to the canvas store (selector pattern — powered by Zustand)
-export function useStore(selector) {
-  return useCanvasStore(selector);
+// Supports optional equality function as second argument.
+export function useStore(selector, equalityFn) {
+  return useCanvasStore(selector, equalityFn);
 }
 
 // ── useStoreApi ──────────────────────────────────────────────────
@@ -415,8 +419,8 @@ export function useUndoRedo({ maxHistorySize = 100 } = {}) {
   // Take a snapshot of current state
   const takeSnapshot = useCallback(() => {
     const snapshot = {
-      nodes: store.nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
-      edges: store.edgesRef.current.map((e) => ({ ...e })),
+      nodes: s().nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: s().edgesRef.current.map((e) => ({ ...e })),
     };
     // Avoid duplicate consecutive snapshots
     if (lastSnapshot.current &&
@@ -436,42 +440,42 @@ export function useUndoRedo({ maxHistorySize = 100 } = {}) {
     if (!prev) return;
     // Save current state to redo stack
     redoStack.current.push({
-      nodes: store.nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
-      edges: store.edgesRef.current.map((e) => ({ ...e })),
+      nodes: s().nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: s().edgesRef.current.map((e) => ({ ...e })),
     });
     // Restore
-    store.onNodesChangeRef.current?.([
-      ...store.nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
+    s().onNodesChangeRef.current?.([
+      ...s().nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
       ...prev.nodes.map((item) => ({ type: 'add', item })),
     ]);
-    store.onEdgesChangeRef.current?.([
-      ...store.edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
+    s().onEdgesChangeRef.current?.([
+      ...s().edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
       ...prev.edges.map((item) => ({ type: 'add', item })),
     ]);
     lastSnapshot.current = prev;
     forceUpdate((c) => c + 1);
-  }, [store]);
+  }, [s]);
 
   const redo = useCallback(() => {
     const next = redoStack.current.pop();
     if (!next) return;
     // Save current to undo stack
     undoStack.current.push({
-      nodes: store.nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
-      edges: store.edgesRef.current.map((e) => ({ ...e })),
+      nodes: s().nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: s().edgesRef.current.map((e) => ({ ...e })),
     });
     // Restore
-    store.onNodesChangeRef.current?.([
-      ...store.nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
+    s().onNodesChangeRef.current?.([
+      ...s().nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
       ...next.nodes.map((item) => ({ type: 'add', item })),
     ]);
-    store.onEdgesChangeRef.current?.([
-      ...store.edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
+    s().onEdgesChangeRef.current?.([
+      ...s().edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
       ...next.edges.map((item) => ({ type: 'add', item })),
     ]);
     lastSnapshot.current = next;
     forceUpdate((c) => c + 1);
-  }, [store]);
+  }, [s]);
 
   return {
     undo,

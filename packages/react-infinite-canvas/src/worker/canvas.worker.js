@@ -58,9 +58,24 @@ function getNodeHandles(node) {
       return { id: h.id || null, type: h.type, x: pos.x, y: pos.y, position: h.position };
     });
   }
+  // Respect node.targetPosition / node.sourcePosition (set by layout algorithms)
+  var tPos = node.targetPosition || 'left';
+  var sPos = node.sourcePosition || 'right';
+  var np = getNodePos(node);
+  function posToCoords(pos) {
+    switch (pos) {
+      case 'top': return { x: np.x + nw / 2, y: np.y };
+      case 'bottom': return { x: np.x + nw / 2, y: np.y + nh };
+      case 'left': return { x: np.x, y: np.y + nh / 2 };
+      case 'right': return { x: np.x + nw, y: np.y + nh / 2 };
+      default: return { x: np.x + nw, y: np.y + nh / 2 };
+    }
+  }
+  var tc = posToCoords(tPos);
+  var sc = posToCoords(sPos);
   return [
-    { id: null, type: 'target', x: getNodePos(node).x, y: getNodePos(node).y + nh / 2, position: 'left' },
-    { id: null, type: 'source', x: getNodePos(node).x + nw, y: getNodePos(node).y + nh / 2, position: 'right' },
+    { id: null, type: 'target', x: tc.x, y: tc.y, position: tPos },
+    { id: null, type: 'source', x: sc.x, y: sc.y, position: sPos },
   ];
 }
 

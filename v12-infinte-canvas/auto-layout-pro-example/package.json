@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
-    "@infinit-canvas/react": "^0.1.1",
+    "@infinit-canvas/react": "*",
     "d3-hierarchy": "^3.1.2",
     "elkjs": "^0.9.1",
     "leva": "^0.9.35",
