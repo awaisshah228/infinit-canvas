@@ -40,11 +40,11 @@ export interface NodeHandle {
   y?: number;
 }
 
-export interface Node<T = Record<string, unknown>> {
+export interface Node<T = Record<string, unknown>, TType extends string = string> {
   id: string;
   position: XYPosition;
   data: T;
-  type?: string;
+  type?: TType;
   width?: number;
   height?: number;
   selected?: boolean;
@@ -69,11 +69,11 @@ export interface Node<T = Record<string, unknown>> {
 
 export type EdgeType = 'default' | 'straight' | 'step' | 'smoothstep';
 
-export interface Edge<T = Record<string, unknown>> {
+export interface Edge<T = Record<string, unknown>, TType extends string = string> {
   id: string;
   source: string;
   target: string;
-  type?: EdgeType | string;
+  type?: TType;
   sourceHandle?: string | null;
   targetHandle?: string | null;
   data?: T;
@@ -402,6 +402,10 @@ export interface PanelProps {
 
 // ─── Hook Return Types ───────────────────────────────────────────
 
+export interface ViewportAnimationOptions {
+  duration?: number;
+}
+
 export interface ReactFlowInstance {
   getNodes: () => Node[];
   getEdges: () => Edge[];
@@ -413,16 +417,18 @@ export interface ReactFlowInstance {
   addEdges: (edges: Edge | Edge[]) => void;
   deleteElements: (params: { nodes?: Node[]; edges?: Edge[] }) => void;
   getViewport: () => Viewport;
-  setViewport: (viewport: Partial<Viewport>) => void;
+  setViewport: (viewport: Partial<Viewport>, options?: ViewportAnimationOptions) => void;
   getZoom: () => number;
-  zoomIn: (options?: { duration?: number }) => void;
-  zoomOut: (options?: { duration?: number }) => void;
-  zoomTo: (zoom: number, options?: { duration?: number }) => void;
+  zoomIn: (options?: ViewportAnimationOptions) => void;
+  zoomOut: (options?: ViewportAnimationOptions) => void;
+  zoomTo: (zoom: number, options?: ViewportAnimationOptions) => void;
   fitView: (options?: FitViewOptions) => void;
-  setCenter: (x: number, y: number, options?: { zoom?: number }) => void;
+  fitBounds: (bounds: Rect, options?: FitViewOptions) => void;
+  setCenter: (x: number, y: number, options?: { zoom?: number; duration?: number }) => void;
   screenToFlowPosition: (position: XYPosition) => XYPosition;
   flowToScreenPosition: (position: XYPosition) => XYPosition;
   updateNodeData: (nodeId: string, dataUpdate: Partial<Node['data']> | ((node: Node) => Partial<Node['data']>)) => void;
+  toObject: () => { nodes: Node[]; edges: Edge[]; viewport: Viewport };
 }
 
 export interface UseOnViewportChangeOptions {
@@ -445,7 +451,7 @@ export interface UseHandleConnectionsOptions {
 
 // Core
 export declare function InfiniteCanvas(props: InfiniteCanvasProps): JSX.Element;
-export declare function InfiniteCanvasProvider(props: { children: React.ReactNode }): JSX.Element;
+export declare function InfiniteCanvasProvider(props: { children: React.ReactNode; initialNodes?: Node[]; initialEdges?: Edge[] }): JSX.Element;
 export declare function useInfiniteCanvas(options?: Partial<InfiniteCanvasProps>): {
   wrapRef: React.RefObject<HTMLDivElement>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -485,7 +491,29 @@ export declare function useUpdateNodeInternals(): (nodeId: string | string[]) =>
 export declare function useNodesInitialized(options?: { includeHiddenNodes?: boolean }): boolean;
 export declare function useInternalNode(nodeId: string): Node | undefined;
 export declare function useStore<T>(selector: (state: InfiniteCanvasState) => T): T;
-export declare function useStoreApi(): { getState: () => InfiniteCanvasState };
+export declare function useStoreApi(): { getState: () => InfiniteCanvasState; setState: (partial: Partial<InfiniteCanvasState>) => void; subscribe: (listener: (state: InfiniteCanvasState) => void) => () => void };
+
+// Undo/Redo
+export interface UseUndoRedoOptions {
+  maxHistorySize?: number;
+}
+export interface UseUndoRedoReturn {
+  undo: () => void;
+  redo: () => void;
+  takeSnapshot: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+export declare function useUndoRedo(options?: UseUndoRedoOptions): UseUndoRedoReturn;
+
+// Change middleware
+export declare function useOnNodesChangeMiddleware<NodeType extends Node = Node>(
+  middleware: (changes: NodeChange<NodeType>[]) => NodeChange<NodeType>[] | false | void
+): (originalOnNodesChange: OnNodesChange<NodeType>) => OnNodesChange<NodeType>;
+
+export declare function useOnEdgesChangeMiddleware<EdgeType extends Edge = Edge>(
+  middleware: (changes: EdgeChange<EdgeType>[]) => EdgeChange<EdgeType>[] | false | void
+): (originalOnEdgesChange: OnEdgesChange<EdgeType>) => OnEdgesChange<EdgeType>;
 
 // Utilities
 export declare function applyNodeChanges<NodeType extends Node = Node>(changes: NodeChange<NodeType>[], nodes: NodeType[]): NodeType[];
@@ -509,6 +537,13 @@ export declare function MiniMap(props: MiniMapProps): JSX.Element;
 export declare function Background(props: BackgroundProps): JSX.Element;
 export declare function Panel(props: PanelProps): JSX.Element;
 export declare function Handle(props: HandleProps): JSX.Element;
+export declare function NodeResizer(props: NodeResizerProps): JSX.Element;
+export declare function NodeToolbar(props: NodeToolbarProps): JSX.Element;
+export declare function EdgeToolbar(props: { children?: React.ReactNode; style?: React.CSSProperties; className?: string }): JSX.Element;
+export declare function EdgeLabelRenderer(props: { children?: React.ReactNode }): JSX.Element;
+export declare function ViewportPortal(props: { children?: React.ReactNode }): JSX.Element;
+export declare function ConnectionLine(props: ConnectionLineComponentProps): JSX.Element;
+export declare function SelectionBox(props: { selectionKeyCode?: string; selectionMode?: SelectionMode }): JSX.Element;
 
 // ─── React Flow Compatibility Types ─────────────────────────────
 
@@ -575,6 +610,33 @@ export interface HandleProps {
   isConnectableStart?: boolean;
   isConnectableEnd?: boolean;
   onConnect?: (connection: Connection) => void;
+  style?: React.CSSProperties;
+  className?: string;
+  children?: React.ReactNode;
+}
+
+export interface NodeResizerProps {
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  keepAspectRatio?: boolean;
+  shouldResize?: (event: any) => boolean;
+  onResizeStart?: (event: any, params: { width: number; height: number }) => void;
+  onResize?: (event: any, params: { width: number; height: number }) => void;
+  onResizeEnd?: (event: any, params: { width: number; height: number }) => void;
+  color?: string;
+  handleStyle?: React.CSSProperties;
+  lineStyle?: React.CSSProperties;
+  isVisible?: boolean;
+}
+
+export interface NodeToolbarProps {
+  nodeId?: string | string[];
+  isVisible?: boolean;
+  position?: Position;
+  offset?: number;
+  align?: 'center' | 'start' | 'end';
   style?: React.CSSProperties;
   className?: string;
   children?: React.ReactNode;

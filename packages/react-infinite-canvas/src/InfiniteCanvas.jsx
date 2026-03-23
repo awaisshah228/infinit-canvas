@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import useInfiniteCanvas from './useInfiniteCanvas.js';
-import InfiniteCanvasContext from './context/InfiniteCanvasContext.js';
+import InfiniteCanvasContext, { createCanvasStore } from './context/InfiniteCanvasContext.js';
 import NodeWrapper from './components/NodeWrapper/index.jsx';
 import EdgeWrapper from './components/EdgeWrapper/index.jsx';
 import SelectionBox from './components/SelectionBox/index.jsx';
@@ -172,15 +172,30 @@ export default function InfiniteCanvas({
     edgeRouting,
   });
 
-  // Extend store with portal refs and full nodes/edges (including custom)
-  const store = useMemo(() => ({
-    ...baseStore,
-    edgeLabelContainerRef,
-    viewportPortalRef,
-    // Override nodes/edges getters to return ALL nodes (canvas + custom)
-    get nodes() { return nodes; },
-    get edges() { return edges; },
-  }), [baseStore, nodes, edges]);
+  // Create a Zustand store that wraps the internal canvas state
+  const zustandStoreRef = useRef(null);
+  if (!zustandStoreRef.current) {
+    zustandStoreRef.current = createCanvasStore({
+      ...baseStore,
+      edgeLabelContainerRef,
+      viewportPortalRef,
+    });
+  }
+
+  // Sync the Zustand store whenever baseStore/nodes/edges change
+  useEffect(() => {
+    zustandStoreRef.current.setState({
+      ...baseStore,
+      edgeLabelContainerRef,
+      viewportPortalRef,
+      nodes,
+      edges,
+      viewport: baseStore.cameraRef.current,
+      minZoom: baseStore.zoomMin || 0.1,
+      maxZoom: baseStore.zoomMax || 5,
+    });
+  }, [baseStore, nodes, edges]);
+
 
   // Refs for direct DOM transform updates (bypass React re-renders during pan/zoom)
   const nodesOverlayRef = useRef(null);
@@ -205,11 +220,53 @@ export default function InfiniteCanvas({
     return () => cancelAnimationFrame(rafId);
   }, [baseStore]);
 
+  // ── Node virtualization: only mount nodes visible in viewport ──
+  const [visibleNodeIds, setVisibleNodeIds] = useState(null); // null = show all (before first cull)
+  useEffect(() => {
+    if (!customNodes.length) return;
+    let rafId;
+    const cull = () => {
+      const cam = baseStore.cameraRef.current;
+      const wrap = baseStore.wrapRef.current;
+      if (!wrap) { rafId = requestAnimationFrame(cull); return; }
+      const rect = wrap.getBoundingClientRect();
+      // Viewport bounds in world space (with generous margin for off-screen nodes about to scroll in)
+      const margin = 200; // px in world space
+      const vLeft = (-cam.x / cam.zoom) - margin;
+      const vTop = (-cam.y / cam.zoom) - margin;
+      const vRight = (rect.width - cam.x) / cam.zoom + margin;
+      const vBottom = (rect.height - cam.y) / cam.zoom + margin;
+
+      const ids = new Set();
+      for (const node of customNodes) {
+        const pos = node._absolutePosition || node.position;
+        const w = node.width || node.measured?.width || 200;
+        const h = node.height || node.measured?.height || 100;
+        if (pos.x + w >= vLeft && pos.x <= vRight && pos.y + h >= vTop && pos.y <= vBottom) {
+          ids.add(node.id);
+        }
+      }
+      setVisibleNodeIds((prev) => {
+        if (!prev || prev.size !== ids.size) return ids;
+        for (const id of ids) { if (!prev.has(id)) return ids; }
+        return prev; // no change
+      });
+      rafId = requestAnimationFrame(cull);
+    };
+    rafId = requestAnimationFrame(cull);
+    return () => cancelAnimationFrame(rafId);
+  }, [customNodes, baseStore]);
+
+  const virtualizedNodes = useMemo(() => {
+    if (!visibleNodeIds) return customNodes; // show all until first cull
+    return customNodes.filter((n) => visibleNodeIds.has(n.id));
+  }, [customNodes, visibleNodeIds]);
+
   const hasCustomNodes = customNodes.length > 0;
   const hasCustomEdges = customEdges.length > 0;
 
   return (
-    <InfiniteCanvasContext.Provider value={store}>
+    <InfiniteCanvasContext.Provider value={zustandStoreRef.current}>
       <div
         ref={wrapRef}
         className={`ric-wrap ${className}`}
@@ -273,7 +330,7 @@ export default function InfiniteCanvas({
               zIndex: 10,
             }}
           >
-            {customNodes.map((node) => (
+            {virtualizedNodes.map((node) => (
               <NodeWrapper
                 key={node.id}
                 node={node}
@@ -334,5 +391,16 @@ export default function InfiniteCanvas({
 }
 
 export function InfiniteCanvasProvider({ children }) {
-  return children;
+  // Provide a default Zustand store so hooks like useReactFlow() work
+  // outside of <InfiniteCanvas> but inside <InfiniteCanvasProvider>.
+  const storeRef = useRef(null);
+  if (!storeRef.current) {
+    storeRef.current = createCanvasStore();
+  }
+
+  return (
+    <InfiniteCanvasContext.Provider value={storeRef.current}>
+      {children}
+    </InfiniteCanvasContext.Provider>
+  );
 }

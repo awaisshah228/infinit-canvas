@@ -25,8 +25,11 @@ export {
   useNodesInitialized,    // Check if nodes are initialized
   useInternalNode,        // Access internal node data
   useStore,               // Direct store access (selector pattern)
-  useStoreApi,            // Imperative store access { getState() }
+  useStoreApi,            // Imperative store access { getState, setState, subscribe }
   useNodeId,              // Current node ID inside custom node component
+  useUndoRedo,            // Undo/redo history management for nodes & edges
+  useOnNodesChangeMiddleware, // Intercept & transform node changes
+  useOnEdgesChangeMiddleware, // Intercept & transform edge changes
 } from './hooks/index.js';
 
 // ─── Utilities ───────────────────────────────────────────────────

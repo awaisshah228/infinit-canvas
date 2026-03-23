@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useCanvasStore } from '../context/InfiniteCanvasContext.js';
+import { useCanvasStore, useCanvasStoreApi } from '../context/InfiniteCanvasContext.js';
 import { getNodesBounds, getViewportForBounds, getConnectedEdges } from '../utils/graph.js';
 
 // ── useReactFlow ─────────────────────────────────────────────────
@@ -71,14 +71,41 @@ export function useReactFlow() {
     return { x: cam.x, y: cam.y, zoom: cam.zoom };
   }, [store]);
 
+  // ── Animated transition helper ──
+  const animateRef = useRef(null);
+  const animateTo = useCallback((target, duration) => {
+    if (animateRef.current) cancelAnimationFrame(animateRef.current);
+    if (!duration || duration <= 0) {
+      store.cameraRef.current = { ...target };
+      store.sendCamera();
+      return;
+    }
+    const start = { ...store.cameraRef.current };
+    const t0 = performance.now();
+    const tick = (now) => {
+      const elapsed = now - t0;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out cubic
+      const t = 1 - Math.pow(1 - progress, 3);
+      store.cameraRef.current = {
+        x: start.x + (target.x - start.x) * t,
+        y: start.y + (target.y - start.y) * t,
+        zoom: start.zoom + (target.zoom - start.zoom) * t,
+      };
+      store.sendCamera();
+      if (progress < 1) animateRef.current = requestAnimationFrame(tick);
+    };
+    animateRef.current = requestAnimationFrame(tick);
+  }, [store]);
+
   const setViewport = useCallback((viewport, options) => {
-    store.cameraRef.current = {
+    const target = {
       x: viewport.x ?? store.cameraRef.current.x,
       y: viewport.y ?? store.cameraRef.current.y,
       zoom: viewport.zoom ?? store.cameraRef.current.zoom,
     };
-    store.sendCamera();
-  }, [store]);
+    animateTo(target, options?.duration);
+  }, [store, animateTo]);
 
   const getZoom = useCallback(() => store.cameraRef.current.zoom, [store]);
 
@@ -90,11 +117,13 @@ export function useReactFlow() {
     const mx = rect.width / 2;
     const my = rect.height / 2;
     const factor = 1.2;
-    cam.x = mx - (mx - cam.x) * factor;
-    cam.y = my - (my - cam.y) * factor;
-    cam.zoom = Math.min(store.zoomMax, cam.zoom * factor);
-    store.sendCamera();
-  }, [store]);
+    const target = {
+      x: mx - (mx - cam.x) * factor,
+      y: my - (my - cam.y) * factor,
+      zoom: Math.min(store.zoomMax, cam.zoom * factor),
+    };
+    animateTo(target, options?.duration);
+  }, [store, animateTo]);
 
   const zoomOut = useCallback((options) => {
     const cam = store.cameraRef.current;
@@ -104,25 +133,30 @@ export function useReactFlow() {
     const mx = rect.width / 2;
     const my = rect.height / 2;
     const factor = 1 / 1.2;
-    cam.x = mx - (mx - cam.x) * factor;
-    cam.y = my - (my - cam.y) * factor;
-    cam.zoom = Math.max(store.zoomMin, cam.zoom * factor);
-    store.sendCamera();
-  }, [store]);
+    const target = {
+      x: mx - (mx - cam.x) * factor,
+      y: my - (my - cam.y) * factor,
+      zoom: Math.max(store.zoomMin, cam.zoom * factor),
+    };
+    animateTo(target, options?.duration);
+  }, [store, animateTo]);
 
-  const zoomTo = useCallback((zoom) => {
+  const zoomTo = useCallback((zoom, options) => {
     const cam = store.cameraRef.current;
     const wrap = store.wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const mx = rect.width / 2;
     const my = rect.height / 2;
-    const factor = zoom / cam.zoom;
-    cam.x = mx - (mx - cam.x) * factor;
-    cam.y = my - (my - cam.y) * factor;
-    cam.zoom = Math.min(store.zoomMax, Math.max(store.zoomMin, zoom));
-    store.sendCamera();
-  }, [store]);
+    const newZoom = Math.min(store.zoomMax, Math.max(store.zoomMin, zoom));
+    const factor = newZoom / cam.zoom;
+    const target = {
+      x: mx - (mx - cam.x) * factor,
+      y: my - (my - cam.y) * factor,
+      zoom: newZoom,
+    };
+    animateTo(target, options?.duration);
+  }, [store, animateTo]);
 
   const fitView = useCallback((options = {}) => {
     const nodes = store.nodesRef.current;
@@ -139,21 +173,39 @@ export function useReactFlow() {
     const vp = getViewportForBounds(bounds, rect.width, rect.height, padding);
     if (options.maxZoom) vp.zoom = Math.min(vp.zoom, options.maxZoom);
     if (options.minZoom) vp.zoom = Math.max(vp.zoom, options.minZoom);
-    store.cameraRef.current = vp;
-    store.sendCamera();
-  }, [store]);
+    animateTo(vp, options.duration);
+  }, [store, animateTo]);
+
+  const fitBounds = useCallback((bounds, options = {}) => {
+    const wrap = store.wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const padding = options.padding ?? 0.1;
+    const vp = getViewportForBounds(bounds, rect.width, rect.height, padding);
+    if (options.maxZoom) vp.zoom = Math.min(vp.zoom, options.maxZoom);
+    if (options.minZoom) vp.zoom = Math.max(vp.zoom, options.minZoom);
+    animateTo(vp, options.duration);
+  }, [store, animateTo]);
 
   const setCenter = useCallback((x, y, options = {}) => {
     const wrap = store.wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const zoom = options.zoom ?? store.cameraRef.current.zoom;
-    store.cameraRef.current = {
+    const target = {
       x: rect.width / 2 - x * zoom,
       y: rect.height / 2 - y * zoom,
       zoom,
     };
-    store.sendCamera();
+    animateTo(target, options.duration);
+  }, [store, animateTo]);
+
+  const toObject = useCallback(() => {
+    return {
+      nodes: [...store.nodesRef.current],
+      edges: [...store.edgesRef.current],
+      viewport: { ...store.cameraRef.current },
+    };
   }, [store]);
 
   const screenToFlowPosition = useCallback((clientPos) => {
@@ -182,9 +234,9 @@ export function useReactFlow() {
     getNodes, getEdges, getNode, getEdge,
     setNodes, setEdges, addNodes, addEdges, deleteElements,
     getViewport, setViewport, getZoom, zoomIn, zoomOut, zoomTo,
-    fitView, setCenter,
+    fitView, fitBounds, setCenter,
     screenToFlowPosition, flowToScreenPosition,
-    updateNodeData,
+    updateNodeData, toObject,
   };
 }
 
@@ -336,27 +388,130 @@ export function useInternalNode(nodeId) {
 }
 
 // ── useStore ─────────────────────────────────────────────────────
-// Direct access to the canvas store (selector pattern like Zustand)
+// Direct access to the canvas store (selector pattern — powered by Zustand)
 export function useStore(selector) {
-  const store = useCanvasStore();
-  if (typeof selector === 'function') {
-    return selector(store);
-  }
-  return store;
+  return useCanvasStore(selector);
 }
 
 // ── useStoreApi ──────────────────────────────────────────────────
-// Returns an object with getState() for imperative store access
+// Returns the raw Zustand store for imperative access { getState, setState, subscribe }
 export function useStoreApi() {
-  const store = useCanvasStore();
-  return useMemo(() => ({
-    getState: () => store,
-    setState: () => {
-      console.warn('[infinite-canvas] setState on storeApi is not supported. Use onNodesChange/onEdgesChange instead.');
-    },
-  }), [store]);
+  return useCanvasStoreApi();
 }
 
 // ── useNodeId ────────────────────────────────────────────────────
 // Returns the current node ID inside a custom node component.
 export { useNodeId } from '../context/NodeIdContext.js';
+
+// ── useUndoRedo ─────────────────────────────────────────────────
+// History management for nodes and edges with configurable max stack size.
+export function useUndoRedo({ maxHistorySize = 100 } = {}) {
+  const store = useCanvasStore();
+  const undoStack = useRef([]);
+  const redoStack = useRef([]);
+  const [, forceUpdate] = useState(0);
+  const lastSnapshot = useRef(null);
+
+  // Take a snapshot of current state
+  const takeSnapshot = useCallback(() => {
+    const snapshot = {
+      nodes: store.nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: store.edgesRef.current.map((e) => ({ ...e })),
+    };
+    // Avoid duplicate consecutive snapshots
+    if (lastSnapshot.current &&
+        JSON.stringify(lastSnapshot.current.nodes.map((n) => n.id)) === JSON.stringify(snapshot.nodes.map((n) => n.id)) &&
+        JSON.stringify(lastSnapshot.current.edges.map((e) => e.id)) === JSON.stringify(snapshot.edges.map((e) => e.id))) {
+      return;
+    }
+    undoStack.current.push(snapshot);
+    if (undoStack.current.length > maxHistorySize) undoStack.current.shift();
+    redoStack.current = [];
+    lastSnapshot.current = snapshot;
+    forceUpdate((c) => c + 1);
+  }, [store, maxHistorySize]);
+
+  const undo = useCallback(() => {
+    const prev = undoStack.current.pop();
+    if (!prev) return;
+    // Save current state to redo stack
+    redoStack.current.push({
+      nodes: store.nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: store.edgesRef.current.map((e) => ({ ...e })),
+    });
+    // Restore
+    store.onNodesChangeRef.current?.([
+      ...store.nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
+      ...prev.nodes.map((item) => ({ type: 'add', item })),
+    ]);
+    store.onEdgesChangeRef.current?.([
+      ...store.edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
+      ...prev.edges.map((item) => ({ type: 'add', item })),
+    ]);
+    lastSnapshot.current = prev;
+    forceUpdate((c) => c + 1);
+  }, [store]);
+
+  const redo = useCallback(() => {
+    const next = redoStack.current.pop();
+    if (!next) return;
+    // Save current to undo stack
+    undoStack.current.push({
+      nodes: store.nodesRef.current.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: store.edgesRef.current.map((e) => ({ ...e })),
+    });
+    // Restore
+    store.onNodesChangeRef.current?.([
+      ...store.nodesRef.current.map((n) => ({ id: n.id, type: 'remove' })),
+      ...next.nodes.map((item) => ({ type: 'add', item })),
+    ]);
+    store.onEdgesChangeRef.current?.([
+      ...store.edgesRef.current.map((e) => ({ id: e.id, type: 'remove' })),
+      ...next.edges.map((item) => ({ type: 'add', item })),
+    ]);
+    lastSnapshot.current = next;
+    forceUpdate((c) => c + 1);
+  }, [store]);
+
+  return {
+    undo,
+    redo,
+    takeSnapshot,
+    canUndo: undoStack.current.length > 0,
+    canRedo: redoStack.current.length > 0,
+  };
+}
+
+// ── useOnNodesChangeMiddleware ──────────────────────────────────
+// Intercept and transform node changes before they reach the user's onNodesChange.
+// Returns a wrapped onNodesChange handler.
+export function useOnNodesChangeMiddleware(middleware) {
+  const middlewareRef = useRef(middleware);
+  useEffect(() => { middlewareRef.current = middleware; }, [middleware]);
+
+  return useCallback((originalOnNodesChange) => {
+    return (changes) => {
+      const transformed = middlewareRef.current(changes);
+      if (transformed !== false && transformed != null) {
+        originalOnNodesChange(Array.isArray(transformed) ? transformed : changes);
+      }
+      // If middleware returns false, changes are swallowed
+    };
+  }, []);
+}
+
+// ── useOnEdgesChangeMiddleware ──────────────────────────────────
+// Intercept and transform edge changes before they reach the user's onEdgesChange.
+export function useOnEdgesChangeMiddleware(middleware) {
+  const middlewareRef = useRef(middleware);
+  useEffect(() => { middlewareRef.current = middleware; }, [middleware]);
+
+  return useCallback((originalOnEdgesChange) => {
+    return (changes) => {
+      const transformed = middlewareRef.current(changes);
+      if (transformed !== false && transformed != null) {
+        originalOnEdgesChange(Array.isArray(transformed) ? transformed : changes);
+      }
+    };
+  }, []);
+}
