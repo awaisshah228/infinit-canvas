@@ -56,9 +56,16 @@ function getSharedResizeObserver() {
       const s = info.getStore();
       const registry = s.handleRegistryRef?.current;
       if (!registry) continue;
+      const zoom = s.cameraRef?.current?.zoom;
       for (const [key, h] of registry) {
         if (h.nodeId === info.nodeId) {
-          const offset = getPositionOffset(h.position, width, height);
+          let offset;
+          if (h.el) {
+            offset = measureHandleOffset(h.el, zoom);
+          }
+          if (!offset) {
+            offset = getPositionOffset(h.position, width, height);
+          }
           h.x = offset.x;
           h.y = offset.y;
           registry.set(key, h);
@@ -101,21 +108,22 @@ function Handle({
     const registry = s.handleRegistryRef?.current;
     if (!registry) return;
 
-    const key = `${nodeId}__${id || type}`;
+    const key = `${nodeId}__${id || `${type}_${position}`}`;
     const node = s.nodesRef?.current?.find((n) => n.id === nodeId);
     const nw = node?.width || node?.measured?.width;
     const nh = node?.height || node?.measured?.height;
 
     let offset;
-    if (nw && nh) {
-      offset = getPositionOffset(position, nw, nh);
-    } else if (handleRef.current) {
+    // Always prefer DOM measurement so handles at custom CSS positions
+    // (e.g. multiple handles on the same side) get their actual coordinates.
+    if (handleRef.current) {
       offset = measureHandleOffset(handleRef.current, s.cameraRef?.current?.zoom);
-    } else {
-      offset = getPositionOffset(position, 160, 60);
+    }
+    if (!offset) {
+      offset = getPositionOffset(position, nw || 160, nh || 60);
     }
 
-    registry.set(key, { nodeId, id: id || null, type, position, x: offset.x, y: offset.y });
+    registry.set(key, { nodeId, id: id || null, type, position, x: offset.x, y: offset.y, el: handleRef.current });
 
     // Also set sourcePosition/targetPosition on the node in nodesRef directly.
     // This ensures the worker has correct handle directions on the very first frame,
@@ -145,7 +153,7 @@ function Handle({
       // The registry cleanup is enough; positions will be recalculated when nodes re-enter viewport.
       const st = getStoreRef.current();
       const registry = st.handleRegistryRef?.current;
-      const key = `${nodeId}__${id || type}`;
+      const key = `${nodeId}__${id || `${type}_${position}`}`;
       registry?.delete(key);
     };
   }, [nodeId, id, type, position]);
@@ -156,7 +164,7 @@ function Handle({
     if (!node) return null;
     const nodePos = node._absolutePosition || node.position;
     const registry = s.handleRegistryRef?.current;
-    const key = `${nodeId}__${id || type}`;
+    const key = `${nodeId}__${id || `${type}_${position}`}`;
     const registered = registry?.get(key);
     if (registered && registered.x !== undefined && registered.y !== undefined) {
       return { x: nodePos.x + registered.x, y: nodePos.y + registered.y };
@@ -204,7 +212,7 @@ function Handle({
     const onUp = (ev) => {
       const wx = (ev.clientX - rect.left - cam.x) / cam.zoom;
       const wy = (ev.clientY - rect.top - cam.y) / cam.zoom;
-      const hitRadius = 20 / cam.zoom;
+      const hitRadius = Math.max(20 / cam.zoom, 10);
       let targetNode = null;
       let targetHandleId = null;
       const registry = s.handleRegistryRef?.current;
@@ -221,7 +229,10 @@ function Handle({
           { type: 'target', position: 'left' },
           { type: 'source', position: 'right' },
         ]);
+        const isStrict = s.connectionMode === 'strict';
+        const expectedType = type === 'source' ? 'target' : 'source';
         for (const h of handles) {
+          if (isStrict && h.type !== expectedType) continue;
           let thx, thy;
           if (h.x !== undefined && h.y !== undefined) {
             thx = tp.x + h.x; thy = tp.y + h.y;

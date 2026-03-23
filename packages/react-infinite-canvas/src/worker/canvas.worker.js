@@ -39,12 +39,16 @@ var DEFAULT_NODE_HEIGHT = 60;
 var NODE_RADIUS = 8;
 var HANDLE_RADIUS = 5;
 
-// Get render position (uses absolute position for sub-flow nodes)
+// Returns the world-space position for a node. Sub-flow nodes use _absolutePosition
+// (pre-computed by the layout engine), otherwise falls back to node.position.
 function getNodePos(node) {
   return node._absolutePosition || node.position;
 }
 
-// Handle position helpers
+// Converts a handle definition into absolute pixel coordinates on the canvas.
+// If the handle has explicit x/y offsets they are added to nodeX/nodeY,
+// otherwise the position string ('top'|'bottom'|'left'|'right') maps to the
+// corresponding edge midpoint of the node rectangle.
 function resolveHandlePos(handle, nodeX, nodeY, nw, nh) {
   if (handle.x !== undefined && handle.y !== undefined) {
     return { x: nodeX + handle.x, y: nodeY + handle.y };
@@ -59,7 +63,10 @@ function resolveHandlePos(handle, nodeX, nodeY, nw, nh) {
   }
 }
 
-// Get all handles for a node (uses node.handles or defaults)
+// Builds the full list of connection handles for a node.
+// If node.handles is explicitly defined, each handle is resolved to absolute coords.
+// Otherwise, default source/target handles are generated using node.sourcePosition
+// and node.targetPosition (set by layout algorithms like dagre/elk).
 function getNodeHandles(node) {
   var nw = node.width || DEFAULT_NODE_WIDTH;
   var nh = node.height || DEFAULT_NODE_HEIGHT;
@@ -94,6 +101,8 @@ function getNodeHandles(node) {
 var handleCache = {};
 var handleCacheDirty = true;
 
+// Returns cached handles for a node; recomputes only when the cache is marked dirty.
+// The cache is invalidated every time nodes move or change so handles stay up-to-date.
 function getCachedHandles(node) {
   if (handleCacheDirty) {
     handleCache = {};
@@ -106,6 +115,9 @@ function getCachedHandles(node) {
   return cached;
 }
 
+// Finds a specific handle on a node by type ('source'|'target') and optional handleId.
+// Used when rendering edges to determine where the edge connects to the node.
+// Falls back to the center-right (source) or center-left (target) if no match is found.
 function findEdgeHandle(node, handleType, handleId) {
   var handles = getCachedHandles(node);
   for (var i = 0; i < handles.length; i++) {
@@ -127,6 +139,9 @@ function findEdgeHandle(node, handleType, handleId) {
 
 // ── Performance: pre-computed theme colors ──────────────────────
 var COLORS = {};
+// Pre-computes all theme-dependent color strings into the COLORS object.
+// Called on init and whenever the dark/light theme toggles so we avoid
+// re-building color strings on every frame.
 function updateColors() {
   COLORS = {
     grid: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
@@ -166,6 +181,9 @@ var CELL_SIZE = 400;
 var spatialGrid = {};
 var gridDirty = true;
 
+// Rebuilds the spatial hash-grid for cards. Each card is inserted into every
+// grid cell it overlaps so that frustum culling can query only the cells
+// visible in the viewport instead of iterating all cards.
 function rebuildSpatialGrid() {
   spatialGrid = {};
   for (var i = 0; i < cards.length; i++) {
@@ -185,6 +203,8 @@ function rebuildSpatialGrid() {
   gridDirty = false;
 }
 
+// Returns an array of card indices that overlap the given world-space rectangle
+// (wl=left, wt=top, wr=right, wb=bottom). Uses the spatial grid for O(visible) lookup.
 function getVisibleCardIndices(wl, wt, wr, wb) {
   if (gridDirty) rebuildSpatialGrid();
   var seen = {};
@@ -215,6 +235,8 @@ var NODE_CELL_SIZE = 500;
 var nodeSpatialGrid = {};
 var nodeSpatialDirty = true;
 
+// Rebuilds the spatial hash-grid for nodes (same idea as the card grid but
+// with a larger cell size). Hidden nodes are excluded.
 function rebuildNodeSpatialGrid() {
   nodeSpatialGrid = {};
   for (var i = 0; i < nodes.length; i++) {
@@ -238,6 +260,8 @@ function rebuildNodeSpatialGrid() {
   nodeSpatialDirty = false;
 }
 
+// Returns an array of node indices visible within the given world-space bounds.
+// Uses the node spatial grid for fast O(visible) frustum culling.
 function getVisibleNodeIndices(wl, wt, wr, wb) {
   if (nodeSpatialDirty) rebuildNodeSpatialGrid();
   var seen = {};
@@ -267,6 +291,8 @@ function getVisibleNodeIndices(wl, wt, wr, wb) {
 var nodeLookup = {};
 var nodeLookupDirty = true;
 
+// Builds a { nodeId → node } dictionary so edges can resolve their
+// source/target nodes in O(1) instead of scanning the array each time.
 function rebuildNodeLookup() {
   nodeLookup = {};
   for (var i = 0; i < nodes.length; i++) {
@@ -275,6 +301,7 @@ function rebuildNodeLookup() {
   nodeLookupDirty = false;
 }
 
+// Looks up a node by its id, rebuilding the lookup map if it's stale.
 function getNodeById(id) {
   if (nodeLookupDirty) rebuildNodeLookup();
   return nodeLookup[id];
@@ -284,6 +311,9 @@ function getNodeById(id) {
 var edgeAdjacency = {};
 var edgeAdjacencyDirty = true;
 
+// Builds an adjacency index mapping each nodeId to the indices of edges
+// connected to it. This lets us quickly find which edges to render for
+// a set of visible nodes without iterating the entire edge list.
 function rebuildEdgeAdjacency() {
   edgeAdjacency = {};
   for (var i = 0; i < edges.length; i++) {
@@ -306,6 +336,9 @@ var gridCacheStep = 0;
 var gridCacheVariant = '';
 var gridCacheDirty = true;
 
+// Renders one repeating grid tile to an OffscreenCanvas so the main render
+// loop can stamp it across the viewport with createPattern('repeat').
+// Supports 'lines', 'dots', and 'cross' variants.
 function renderGridToCache(step) {
   if (!gridCache) {
     gridCache = new OffscreenCanvas(1, 1);
@@ -369,9 +402,11 @@ var lastHudTime = 0;
 var animOffset = 0;
 var hasAnimatedEdges = false;
 
-console.log('[worker] script loaded v2 - FRESH');
 self.postMessage({ type: 'ping', data: { status: 'alive' } });
 
+// Main message handler — receives commands from the main thread (init, resize,
+// camera updates, node/edge data, theme changes, etc.) and dispatches them to
+// update local state + trigger re-renders.
 self.onmessage = function(e) {
   try {
     var type = e.data.type;
@@ -399,7 +434,6 @@ self.onmessage = function(e) {
         handleCacheDirty = true;
         edgeAdjacencyDirty = true;
         hasAnimatedEdges = edges.some(function(edge) { return edge.animated; });
-        console.log('[worker] init done — canvas:', W, 'x', H, '| cards:', cards.length, '| nodes:', nodes.length, '| edges:', edges.length, '| routing:', edgeRoutingEnabled);
         render();
         self.postMessage({ type: 'ready' });
         if (hasAnimatedEdges) startAnimationLoop();
@@ -579,10 +613,12 @@ self.onmessage = function(e) {
         break;
     }
   } catch (err) {
-    console.error('[worker] error:', err);
+    // silently ignore — errors are non-fatal in the render worker
   }
 };
 
+// Coalesces multiple state changes within the same frame into a single render.
+// If a render is already scheduled, subsequent calls are no-ops.
 function scheduleRender() {
   if (renderScheduled) return;
   renderScheduled = true;
@@ -593,6 +629,8 @@ function scheduleRender() {
 }
 
 var animLoopRunning = false;
+// Starts a persistent rAF loop that advances the dash-offset for animated edges.
+// Stops automatically once no animated edges remain.
 function startAnimationLoop() {
   if (animLoopRunning) return;
   animLoopRunning = true;
@@ -609,6 +647,9 @@ function startAnimationLoop() {
 }
 
 // ── Routed path helpers ──────────────────────────────────────
+
+// Draws an orthogonal (right-angle) path through a series of waypoints.
+// Corners are rounded with quadratic curves so edges look smooth.
 function drawRoutedPath(path, points) {
   var br = 6;
   path.moveTo(points[0].x, points[0].y);
@@ -631,6 +672,8 @@ function drawRoutedPath(path, points) {
   path.lineTo(points[points.length - 1].x, points[points.length - 1].y);
 }
 
+// Draws a smooth Catmull-Rom spline through a series of points.
+// Used for curved edge types that pass through routed waypoints.
 function drawRoutedCurve(path, points) {
   if (points.length < 2) return;
   path.moveTo(points[0].x, points[0].y);
@@ -656,6 +699,8 @@ function drawRoutedCurve(path, points) {
   }
 }
 
+// Walks along a polyline of routed points and returns the coordinate at the
+// halfway mark (by Manhattan distance). Used to position edge labels.
 function getRoutedMidpoint(points) {
   var totalLen = 0;
   for (var i = 1; i < points.length; i++) {
@@ -677,6 +722,10 @@ function getRoutedMidpoint(points) {
 }
 
 // ── Bezier curve helpers ──────────────────────────────────────
+
+// Computes cubic bezier control points for a default edge between source (sx,sy)
+// and target (tx,ty). The control-point offset scales with horizontal distance
+// so short edges stay tight and long edges get wider curves.
 function getBezierPath(sx, sy, tx, ty) {
   var dx = Math.abs(tx - sx);
   var cpOffset = Math.max(50, dx * 0.5);
@@ -687,6 +736,8 @@ function getBezierPath(sx, sy, tx, ty) {
   return { cp1x: cp1x, cp1y: cp1y, cp2x: cp2x, cp2y: cp2y };
 }
 
+// Evaluates the cubic bezier at t=0.5 to get the visual midpoint of the curve.
+// Used for placing edge labels on bezier-type edges.
 function getBezierMidpoint(sx, sy, tx, ty) {
   var bp = getBezierPath(sx, sy, tx, ty);
   var t = 0.5;
@@ -702,7 +753,10 @@ var edgeRoutingDirty = false;
 var edgeRoutingScheduled = false;
 
 // ── Neighbor-aware edge routing helpers ──────────────────────────
-// Use spatial grid to find nodes near an edge's bounding box (excluding src/tgt)
+
+// Uses the node spatial grid to find nodes whose bounding boxes fall within the
+// rectangle (x1,y1)→(x2,y2), excluding the source and target nodes (excludeIds).
+// Group nodes are also skipped since they act as containers, not obstacles.
 function getNearbyNodes(x1, y1, x2, y2, excludeIds) {
   if (nodeSpatialDirty) rebuildNodeSpatialGrid();
   var minX = Math.min(x1, x2) - 20;
@@ -721,7 +775,8 @@ function getNearbyNodes(x1, y1, x2, y2, excludeIds) {
   return result;
 }
 
-// Check if a horizontal segment (y=cy, from x=x1 to x=x2) crosses through any node
+// Checks if a horizontal line segment (y=cy, from x1 to x2) intersects any
+// nearby node's bounding box. Returns the first colliding node or null.
 function hSegCrossesNode(x1, x2, cy, nearby) {
   var lx = Math.min(x1, x2), rx = Math.max(x1, x2);
   for (var i = 0; i < nearby.length; i++) {
@@ -733,7 +788,8 @@ function hSegCrossesNode(x1, x2, cy, nearby) {
   return null;
 }
 
-// Check if a vertical segment (x=cx, from y=y1 to y=y2) crosses through any node
+// Checks if a vertical line segment (x=cx, from y1 to y2) intersects any
+// nearby node's bounding box. Returns the first colliding node or null.
 function vSegCrossesNode(cx, y1, y2, nearby) {
   var ty = Math.min(y1, y2), by = Math.max(y1, y2);
   for (var i = 0; i < nearby.length; i++) {
@@ -745,7 +801,9 @@ function vSegCrossesNode(cx, y1, y2, nearby) {
   return null;
 }
 
-// Async edge routing — runs after render, sets _routedPoints, triggers re-render
+// Computes orthogonal waypoints for step/smoothstep edges that avoid overlapping
+// nearby nodes. Writes results into edge._routedPoints and triggers a re-render
+// if any paths changed. Runs asynchronously after the initial render frame.
 function routeEdgesAsync() {
   if (!edgeRoutingEnabled) return;
   if (!edgeRoutingDirty || edges.length === 0 || nodes.length === 0) return;
@@ -871,6 +929,8 @@ function routeEdgesAsync() {
   if (changed) scheduleRender();
 }
 
+// Schedules an async edge routing pass on the next animation frame.
+// Coalesces multiple calls so routing only runs once per frame.
 function scheduleEdgeRouting() {
   if (!edgeRoutingEnabled) return;
   if (edgeRoutingScheduled) return;
@@ -880,10 +940,18 @@ function scheduleEdgeRouting() {
   requestAnimationFrame(function() {
     edgeRoutingScheduled = false;
     try { routeEdgesAsync(); }
-    catch (err) { console.error('[worker] async routing error:', err); }
+    catch (err) { /* routing error — non-fatal, skip */ }
   });
 }
 
+// Main render function — clears the canvas and draws everything in order:
+// 1. Grid/background (cached tile or direct draw)
+// 2. Origin dot
+// 3. Edges (batched into normal/selected/animated Path2D objects)
+// 4. Connection line (while user is dragging a new connection)
+// 5. Selection box (while user is drag-selecting)
+// 6. Nodes (shadows → backgrounds → borders → text → handles)
+// 7. HUD stats sent back to main thread (throttled to 100ms)
 function render() {
   if (!ctx) return;
   var t0 = performance.now();
@@ -1404,7 +1472,7 @@ function render() {
             path.lineTo(cleanPts[di].x, cleanPts[di].y);
           }
         }
-        } catch(smoothErr) { console.error('[worker] smoothstep error:', smoothErr, 'edge:', edge.id); }
+        } catch(smoothErr) { /* smoothstep path error — skip this edge */ }
       } else {
         // Bezier with stubs — always exit/enter handle direction first
         var bSrcDir = srcHandle.position || 'right';
@@ -1495,7 +1563,8 @@ function render() {
       ctx.stroke(selectedPath);
     }
 
-    // Draw arrows (batched by color)
+    // Draws arrowhead triangles at edge endpoints, batched by color into a
+    // single beginPath/fill call for performance.
     function drawArrows(arrows, color) {
       if (!arrows.length) return;
       ctx.fillStyle = color;
