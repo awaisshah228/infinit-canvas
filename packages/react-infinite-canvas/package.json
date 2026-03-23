@@ -1,6 +1,6 @@
 {
   "name": "@infinit-canvas/react",
-  "version": "0.1.0",
+  "version": "0.1.8",
   "description": "A performant infinite canvas React component powered by OffscreenCanvas and Web Workers",
   "type": "module",
   "main": "./dist/react-infinite-canvas.cjs",

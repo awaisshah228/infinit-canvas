@@ -26,7 +26,7 @@ export default function BuiltInComponentsPage() {
   Controls, MiniMap, Background, Panel,
   Handle, NodeToolbar, NodeResizer,
   EdgeLabelRenderer, ViewportPortal,
-} from 'react-infinite-canvas';`}</code></pre>
+} from '@infinit-canvas/react';`}</code></pre>
 
         <h2 id="controls">Controls</h2>
         <p>

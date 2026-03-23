@@ -34,7 +34,17 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
   // This prevents the event from bubbling to the canvas wrapper
   // and causing incorrect hit-testing
   const onPointerDown = useCallback((e) => {
-    e.stopPropagation(); // Don't let wrapper handle this
+    e.stopPropagation(); // Always prevent canvas pan/zoom from triggering
+
+    // Skip node drag for interactive elements and elements with 'nodrag' class
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' ||
+        tag === 'A' || tag === 'LABEL' || e.target.isContentEditable) return;
+    let target = e.target;
+    while (target && target !== wrapperRef.current) {
+      if (target.classList?.contains('nodrag') || target.classList?.contains('nopan')) return;
+      target = target.parentElement;
+    }
 
     // Select this node
     if (store.onNodesChangeRef.current) {
@@ -202,9 +212,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           top: pos.y,
           zIndex: node.type === 'group' ? 0 : (node.zIndex || 1),
           pointerEvents: node.type === 'group' ? 'none' : 'all',
-          cursor: node.dragging ? 'grabbing' : 'grab',
           visibility: hasDimensions ? 'visible' : 'hidden',
-          userSelect: 'none',
           outline: 'none',
         }}
         data-nodeid={node.id}

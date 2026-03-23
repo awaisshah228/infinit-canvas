@@ -46,7 +46,7 @@ export default function ApiReferencePage() {
           Complete prop reference for the <code>&lt;InfiniteCanvas&gt;</code> component.
         </p>
 
-        <pre><code>{`import { InfiniteCanvas } from 'react-infinite-canvas';
+        <pre><code>{`import { InfiniteCanvas } from '@infinit-canvas/react';
 
 <InfiniteCanvas
   nodes={nodes}

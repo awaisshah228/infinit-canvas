@@ -6,8 +6,8 @@ const APP_CODE = `import { useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 // 1. Define your nodes
 const initialNodes = [

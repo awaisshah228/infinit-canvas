@@ -171,12 +171,20 @@ export function useReactFlow() {
     };
   }, [store]);
 
+  const updateNodeData = useCallback((nodeId, dataUpdate) => {
+    const node = store.nodesRef.current.find((n) => n.id === nodeId);
+    if (!node) return;
+    const newData = typeof dataUpdate === 'function' ? dataUpdate(node.data) : { ...node.data, ...dataUpdate };
+    store.onNodesChangeRef.current?.([{ id: nodeId, type: 'replace', item: { ...node, data: newData } }]);
+  }, [store]);
+
   return {
     getNodes, getEdges, getNode, getEdge,
     setNodes, setEdges, addNodes, addEdges, deleteElements,
     getViewport, setViewport, getZoom, zoomIn, zoomOut, zoomTo,
     fitView, setCenter,
     screenToFlowPosition, flowToScreenPosition,
+    updateNodeData,
   };
 }
 

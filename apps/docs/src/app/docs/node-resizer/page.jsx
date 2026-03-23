@@ -19,7 +19,7 @@ export default function NodeResizerPage() {
           Users can resize nodes by dragging the corner or edge handles.
         </p>
 
-        <ExampleBlock preview={<NodeResizerExample />} files={[{ name: 'App.jsx', code: `import { Handle, NodeResizer } from 'react-infinite-canvas';
+        <ExampleBlock preview={<NodeResizerExample />} files={[{ name: 'App.jsx', code: `import { Handle, NodeResizer } from '@infinit-canvas/react';
 
 function ResizableNode({ data, selected }) {
   return (
@@ -34,7 +34,7 @@ function ResizableNode({ data, selected }) {
 
         <h2 id="usage">Usage</h2>
         <p>Add NodeResizer inside your custom node component:</p>
-        <pre><code>{`import { Handle, NodeResizer } from 'react-infinite-canvas';
+        <pre><code>{`import { Handle, NodeResizer } from '@infinit-canvas/react';
 
 function ResizableNode({ data, selected }) {
   return (

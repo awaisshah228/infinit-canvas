@@ -6,8 +6,8 @@ const APP_CODE = `import { useMemo } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState,
   Controls, Background,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 function generateGrid(cols = 15, rows = 10) {
   const nodes = [];

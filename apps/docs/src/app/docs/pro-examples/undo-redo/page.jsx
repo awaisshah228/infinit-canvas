@@ -8,7 +8,7 @@ const files = [
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background,
-} from 'react-infinite-canvas';
+} from '@infinit-canvas/react';
 import useUndoRedo from './useUndoRedo';
 
 export default function App() {

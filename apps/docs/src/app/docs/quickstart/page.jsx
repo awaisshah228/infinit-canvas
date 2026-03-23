@@ -6,8 +6,8 @@ const APP_CODE = `import { useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 const initialNodes = [
   {
@@ -97,7 +97,7 @@ export default function QuickstartPage() {
 
         <h2 id="installation">Installation</h2>
         <p>Install the library from npm:</p>
-        <pre><code>npm install react-infinite-canvas</code></pre>
+        <pre><code>npm install @infinit-canvas/react</code></pre>
 
         <h2 id="creating-the-flow">Creating the flow</h2>
         <p>
@@ -116,8 +116,8 @@ export default function QuickstartPage() {
         <pre><code>{`import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';`}</code></pre>
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';`}</code></pre>
 
         <h2 id="render-canvas">Render InfiniteCanvas</h2>
         <p>

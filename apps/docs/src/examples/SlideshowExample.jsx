@@ -11,7 +11,7 @@ const slides = [
   { title: 'Nodes', content: 'Nodes are the building blocks. They can be default, input, output, or fully custom React components.' },
   { title: 'Edges', content: 'Edges connect nodes. Choose from bezier, straight, smoothstep, or create custom edges.' },
   { title: 'Handles', content: 'Handles are connection points. Place them on any side of a node with source/target types.' },
-  { title: 'Thank You', content: 'Start building with react-infinite-canvas today!' },
+  { title: 'Thank You', content: 'Start building with @infinit-canvas/react today!' },
 ];
 
 function SlideNode({ data }) {

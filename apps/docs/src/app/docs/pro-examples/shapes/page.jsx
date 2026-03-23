@@ -8,7 +8,7 @@ const files = [
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background,
-} from 'react-infinite-canvas';
+} from '@infinit-canvas/react';
 
 import { DiamondNode, CircleNode, RectNode, HexagonNode } from './ShapeNodes';
 
@@ -69,7 +69,7 @@ export default function App() {
   },
   {
     name: 'ShapeNodes.jsx',
-    code: `import { Handle } from 'react-infinite-canvas';
+    code: `import { Handle } from '@infinit-canvas/react';
 
 export function DiamondNode({ data }) {
   return (

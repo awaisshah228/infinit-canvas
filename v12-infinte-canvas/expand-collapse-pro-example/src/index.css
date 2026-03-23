@@ -1,0 +1,38 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.react-flow__node {
+  width: 120px;
+}
+
+.react-flow__handle {
+  visibility: hidden;
+}
+
+.react-flow__node button {
+  font-size: 9px;
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  width: 90px;
+  text-align: center;
+  color: rgb(148 163 184);
+  background-color: rgba(241, 245, 249, 0.5);
+  border: none;
+  cursor: pointer;
+}
+
+.react-flow__node button:hover {
+  color: rgb(71 85 105);
+}

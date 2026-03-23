@@ -8,7 +8,7 @@ const files = [
 import {
   InfiniteCanvas, useNodesState, useEdgesState,
   Controls, Background, Handle,
-} from 'react-infinite-canvas';
+} from '@infinit-canvas/react';
 
 import { treeData } from './initialElements';
 import { flattenTree } from './useExpandCollapse';
@@ -101,7 +101,7 @@ export default function App() {
   },
   {
     name: 'ExpandableNode.jsx',
-    code: `import { Handle } from 'react-infinite-canvas';
+    code: `import { Handle } from '@infinit-canvas/react';
 
 export default function ExpandableNode({ data }) {
   return (

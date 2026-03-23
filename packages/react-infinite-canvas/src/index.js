@@ -104,3 +104,24 @@ export { DefaultNode } from './components/Nodes/DefaultNode.jsx';
 export { InputNode } from './components/Nodes/InputNode.jsx';
 export { OutputNode } from './components/Nodes/OutputNode.jsx';
 export { GroupNode } from './components/Nodes/GroupNode.jsx';
+
+// ─── Enums (React Flow compatibility) ───────────────────────────
+export const Position = Object.freeze({
+  Top: 'top',
+  Bottom: 'bottom',
+  Left: 'left',
+  Right: 'right',
+});
+
+export const MarkerType = Object.freeze({
+  Arrow: 'arrow',
+  ArrowClosed: 'arrowclosed',
+});
+
+// ─── Utility (React Flow compatibility) ─────────────────────────
+export function nodeToBox(node) {
+  const w = node.width || (node.measured && node.measured.width) || 0;
+  const h = node.height || (node.measured && node.measured.height) || 0;
+  const pos = node._absolutePosition || node.position || { x: 0, y: 0 };
+  return { x: pos.x, y: pos.y, x2: pos.x + w, y2: pos.y + h };
+}

@@ -24,8 +24,8 @@ export default function OverviewPage() {
         <ExampleBlock preview={<OverviewExample />} files={[{ name: 'App.jsx', code: `import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, MiniMap, Background, Handle, NodeToolbar,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';` }]} />
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';` }]} />
 
         <h2 id="nodes">Nodes</h2>
         <p>

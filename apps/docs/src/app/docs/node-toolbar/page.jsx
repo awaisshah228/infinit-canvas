@@ -19,7 +19,7 @@ export default function NodeToolbarPage() {
           By default, it auto-shows when the node is selected.
         </p>
 
-        <ExampleBlock preview={<NodeToolbarExample />} files={[{ name: 'App.jsx', code: `import { Handle, NodeToolbar } from 'react-infinite-canvas';
+        <ExampleBlock preview={<NodeToolbarExample />} files={[{ name: 'App.jsx', code: `import { Handle, NodeToolbar } from '@infinit-canvas/react';
 
 function ToolbarNode({ data, selected }) {
   return (
@@ -37,7 +37,7 @@ function ToolbarNode({ data, selected }) {
 
         <h2 id="usage">Usage</h2>
         <p>Add NodeToolbar inside your custom node component:</p>
-        <pre><code>{`import { Handle, NodeToolbar } from 'react-infinite-canvas';
+        <pre><code>{`import { Handle, NodeToolbar } from '@infinit-canvas/react';
 
 function ToolbarNode({ data, selected }) {
   return (

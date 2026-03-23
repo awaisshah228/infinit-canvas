@@ -8,6 +8,18 @@ export type SnapGrid = [number, number];
 export type CoordinateExtent = [[number, number], [number, number]];
 
 export type Position = 'top' | 'bottom' | 'left' | 'right';
+export declare const Position: {
+  readonly Top: 'top';
+  readonly Bottom: 'bottom';
+  readonly Left: 'left';
+  readonly Right: 'right';
+};
+
+export type MarkerType = 'arrow' | 'arrowclosed';
+export declare const MarkerType: {
+  readonly Arrow: 'arrow';
+  readonly ArrowClosed: 'arrowclosed';
+};
 export type HandleType = 'source' | 'target';
 export type ConnectionMode = 'strict' | 'loose';
 export type SelectionMode = 'full' | 'partial';
@@ -50,6 +62,7 @@ export interface Node<T = Record<string, unknown>> {
   ariaLabel?: string;
   className?: string;
   style?: React.CSSProperties;
+  measured?: { width?: number; height?: number };
 }
 
 // ─── Edge Types ──────────────────────────────────────────────────
@@ -236,8 +249,13 @@ export interface InfiniteCanvasProps {
   nodes?: Node[];
   edges?: Edge[];
 
+  // Custom types
+  nodeTypes?: NodeTypes;
+  edgeTypes?: EdgeTypes;
+
   // Appearance
   dark?: boolean;
+  colorMode?: ColorMode;
   gridSize?: number;
   width?: string | number;
   height?: string | number;
@@ -320,6 +338,20 @@ export interface InfiniteCanvasProps {
   elevateNodesOnSelect?: boolean;
   elevateEdgesOnSelect?: boolean;
 
+  // DOM event passthrough
+  onDragOver?: (event: React.DragEvent) => void;
+  onDrop?: (event: React.DragEvent) => void;
+
+  // React Flow compatibility
+  proOptions?: ProOptions;
+  nodeOrigin?: NodeOrigin;
+  defaultViewport?: Viewport;
+  selectNodesOnDrag?: boolean;
+  onSelectionDragStart?: SelectionDragHandler;
+  onNodesDelete?: OnNodesDelete;
+  onEdgesDelete?: OnEdgesDelete;
+  onNodeDragStart?: OnNodeDrag;
+
   // Legacy
   onHudUpdate?: (data: HudData) => void;
   showHud?: boolean;
@@ -328,6 +360,9 @@ export interface InfiniteCanvasProps {
 
   // Children
   children?: React.ReactNode;
+
+  // Allow additional props
+  [key: string]: any;
 }
 
 export interface ControlsProps {
@@ -380,13 +415,14 @@ export interface ReactFlowInstance {
   getViewport: () => Viewport;
   setViewport: (viewport: Partial<Viewport>) => void;
   getZoom: () => number;
-  zoomIn: () => void;
-  zoomOut: () => void;
-  zoomTo: (zoom: number) => void;
+  zoomIn: (options?: { duration?: number }) => void;
+  zoomOut: (options?: { duration?: number }) => void;
+  zoomTo: (zoom: number, options?: { duration?: number }) => void;
   fitView: (options?: FitViewOptions) => void;
   setCenter: (x: number, y: number, options?: { zoom?: number }) => void;
   screenToFlowPosition: (position: XYPosition) => XYPosition;
   flowToScreenPosition: (position: XYPosition) => XYPosition;
+  updateNodeData: (nodeId: string, dataUpdate: Partial<Node['data']> | ((node: Node) => Partial<Node['data']>)) => void;
 }
 
 export interface UseOnViewportChangeOptions {
@@ -400,7 +436,7 @@ export interface UseOnSelectionChangeOptions {
 }
 
 export interface UseHandleConnectionsOptions {
-  nodeId: string;
+  nodeId?: string;
   type: HandleType;
   handleId?: string;
 }
@@ -448,6 +484,8 @@ export declare function useKeyPress(keyOrKeys: string | string[]): boolean;
 export declare function useUpdateNodeInternals(): (nodeId: string | string[]) => void;
 export declare function useNodesInitialized(options?: { includeHiddenNodes?: boolean }): boolean;
 export declare function useInternalNode(nodeId: string): Node | undefined;
+export declare function useStore<T>(selector: (state: InfiniteCanvasState) => T): T;
+export declare function useStoreApi(): { getState: () => InfiniteCanvasState };
 
 // Utilities
 export declare function applyNodeChanges<NodeType extends Node = Node>(changes: NodeChange<NodeType>[], nodes: NodeType[]): NodeType[];
@@ -470,3 +508,126 @@ export declare function Controls(props: ControlsProps): JSX.Element;
 export declare function MiniMap(props: MiniMapProps): JSX.Element;
 export declare function Background(props: BackgroundProps): JSX.Element;
 export declare function Panel(props: PanelProps): JSX.Element;
+export declare function Handle(props: HandleProps): JSX.Element;
+
+// ─── React Flow Compatibility Types ─────────────────────────────
+
+export interface Box {
+  x: number;
+  y: number;
+  x2: number;
+  y2: number;
+}
+
+export declare function nodeToBox(node: Node): Box;
+
+export interface InternalNode<NodeType extends Node = Node> extends NodeType {
+  _absolutePosition: XYPosition;
+  measured?: { width?: number; height?: number };
+}
+
+export type BuiltInNode = Node;
+
+export interface NodeProps<NodeType extends Node = Node> {
+  id: string;
+  data: NodeType['data'];
+  type: string;
+  selected: boolean;
+  dragging: boolean;
+  width?: number;
+  height?: number;
+  positionAbsoluteX: number;
+  positionAbsoluteY: number;
+  zIndex: number;
+  isConnectable: boolean;
+  sourcePosition?: Position;
+  targetPosition?: Position;
+  dragHandle?: string;
+}
+
+export interface EdgeProps<EdgeType extends Edge = Edge> {
+  id: string;
+  source: string;
+  target: string;
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  selected?: boolean;
+  animated?: boolean;
+  data?: EdgeType['data'];
+  label?: string;
+  type?: string;
+  sourceHandleId?: string | null;
+  targetHandleId?: string | null;
+  sourcePosition: Position;
+  targetPosition: Position;
+  style?: React.CSSProperties;
+  markerStart?: string;
+  markerEnd?: string;
+}
+
+export interface HandleProps {
+  type: HandleType;
+  position: Position;
+  id?: string;
+  isConnectable?: boolean;
+  isConnectableStart?: boolean;
+  isConnectableEnd?: boolean;
+  onConnect?: (connection: Connection) => void;
+  style?: React.CSSProperties;
+  className?: string;
+  children?: React.ReactNode;
+}
+
+export interface ConnectionLineComponentProps {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  fromPosition: Position;
+  toPosition: Position;
+  fromNode?: Node;
+  toNode?: Node;
+  connectionLineType?: string;
+  connectionLineStyle?: React.CSSProperties;
+}
+
+export interface MiniMapNodeProps {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  selected: boolean;
+  color?: string;
+  style?: React.CSSProperties;
+}
+
+export type NodeTypes = Record<string, React.ComponentType<NodeProps<any>>>;
+export type EdgeTypes = Record<string, React.ComponentType<EdgeProps<any>>>;
+
+export type InfiniteCanvasInstance = ReactFlowInstance;
+export type InfiniteCanvasState = {
+  nodes: Node[];
+  edges: Edge[];
+  domNode: HTMLDivElement | null;
+  width: number;
+  height: number;
+  minZoom: number;
+  maxZoom: number;
+  [key: string]: unknown;
+};
+
+export type NodeOrigin = [number, number];
+
+export interface ProOptions {
+  account?: string;
+  hideAttribution?: boolean;
+}
+
+export type SelectionDragHandler = (event: React.MouseEvent, nodes: Node[]) => void;
+export type OnNodesDelete = (nodes: Node[]) => void;
+export type OnEdgesDelete = (edges: Edge[]) => void;
+
+export type useShallow = <T>(selector: (state: any) => T) => T;

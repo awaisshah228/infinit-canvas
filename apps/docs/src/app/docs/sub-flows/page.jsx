@@ -83,7 +83,7 @@ const nodes = [
           The built-in <code>group</code> type renders a simple container with a label.
           Import it directly if you want to extend it:
         </p>
-        <pre><code>{`import { GroupNode } from 'react-infinite-canvas';
+        <pre><code>{`import { GroupNode } from '@infinit-canvas/react';
 
 // Or create a custom group:
 function CustomGroup({ data, selected, width, height }) {

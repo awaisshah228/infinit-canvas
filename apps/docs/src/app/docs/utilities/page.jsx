@@ -19,7 +19,7 @@ export default function UtilitiesPage() {
         </p>
 
         <h2 id="change-helpers">Change helpers</h2>
-        <pre><code>{`import { applyNodeChanges, applyEdgeChanges, addEdge } from 'react-infinite-canvas';`}</code></pre>
+        <pre><code>{`import { applyNodeChanges, applyEdgeChanges, addEdge } from '@infinit-canvas/react';`}</code></pre>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 20 }}>
           <thead>
@@ -53,7 +53,7 @@ const onNodesChange = useCallback((changes) => {
   getConnectedEdges, getIncomers, getOutgoers,
   getNodesBounds, getViewportForBounds,
   getNodeDimensions, getNodesInside,
-} from 'react-infinite-canvas';`}</code></pre>
+} from '@infinit-canvas/react';`}</code></pre>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 20 }}>
           <thead>
@@ -103,7 +103,7 @@ console.log(bounds); // { x, y, width, height }`}</code></pre>
   getBezierEdgeCenter,
   getEdgeCenter,
   reconnectEdge,
-} from 'react-infinite-canvas';`}</code></pre>
+} from '@infinit-canvas/react';`}</code></pre>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 20 }}>
           <thead>
@@ -152,7 +152,7 @@ const [path, labelX, labelY] = getBezierPath({
   routedPointsToPath,
   getRoutedLabelPosition,
   buildObstacles,
-} from 'react-infinite-canvas';`}</code></pre>
+} from '@infinit-canvas/react';`}</code></pre>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 20 }}>
           <thead>
@@ -188,7 +188,7 @@ const [path, labelX, labelY] = getBezierPath({
   rectToBox, boxToRect,
   getBoundsOfBoxes, getOverlappingArea,
   nodeToRect,
-} from 'react-infinite-canvas';`}</code></pre>
+} from '@infinit-canvas/react';`}</code></pre>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, marginBottom: 20 }}>
           <thead>

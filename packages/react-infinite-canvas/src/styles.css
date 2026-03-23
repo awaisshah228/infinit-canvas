@@ -22,6 +22,31 @@
   cursor: grabbing;
 }
 
+/* Node wrappers */
+.ric-node-wrapper {
+  cursor: grab;
+  user-select: none;
+}
+
+.ric-node-wrapper.dragging {
+  cursor: grabbing;
+}
+
+/* Allow interactive elements inside nodes to work normally */
+.ric-node-wrapper input,
+.ric-node-wrapper textarea,
+.ric-node-wrapper select,
+.ric-node-wrapper button,
+.ric-node-wrapper a,
+.ric-node-wrapper [contenteditable],
+.ric-node-wrapper .nodrag,
+.ric-node-wrapper .nowheel,
+.ric-node-wrapper .nopan {
+  cursor: auto;
+  user-select: auto;
+  -webkit-user-select: auto;
+}
+
 .ric-canvas {
   position: absolute;
   top: 0;

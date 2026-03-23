@@ -22,7 +22,7 @@ export default function HandlesPage() {
           and are the starting point for creating new connections.
         </p>
 
-        <ExampleBlock preview={<HandlesExample />} files={[{ name: 'App.jsx', code: `import { Handle } from 'react-infinite-canvas';
+        <ExampleBlock preview={<HandlesExample />} files={[{ name: 'App.jsx', code: `import { Handle } from '@infinit-canvas/react';
 
 function MultiHandleNode({ data }) {
   return (
@@ -54,7 +54,7 @@ function MultiHandleNode({ data }) {
           <li><code>source</code> — where edges start (output)</li>
           <li><code>target</code> — where edges end (input)</li>
         </ul>
-        <pre><code>{`import { Handle } from 'react-infinite-canvas';
+        <pre><code>{`import { Handle } from '@infinit-canvas/react';
 
 <Handle type="source" position="right" />
 <Handle type="target" position="left" />`}</code></pre>

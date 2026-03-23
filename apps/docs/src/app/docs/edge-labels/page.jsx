@@ -41,7 +41,7 @@ export default function EdgeLabelsPage() {
           React content as edge labels. This portals your content into a special layer
           that moves with the viewport.
         </p>
-        <pre><code>{`import { EdgeLabelRenderer, getBezierPath } from 'react-infinite-canvas';
+        <pre><code>{`import { EdgeLabelRenderer, getBezierPath } from '@infinit-canvas/react';
 
 function LabeledEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label }) {
   const [edgePath, labelX, labelY] = getBezierPath({
@@ -91,7 +91,7 @@ function LabeledEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targe
           The <code>EdgeToolbar</code> component positions a floating toolbar at a specific
           point along an edge:
         </p>
-        <pre><code>{`import { EdgeToolbar } from 'react-infinite-canvas';
+        <pre><code>{`import { EdgeToolbar } from '@infinit-canvas/react';
 
 <EdgeToolbar
   isVisible={selected}

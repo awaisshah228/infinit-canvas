@@ -19,7 +19,7 @@ export default function PanelPage() {
           toolbars, info panels, debug overlays, or any UI you want to float over the canvas.
         </p>
 
-        <ExampleBlock preview={<PanelExample />} files={[{ name: 'App.jsx', code: `import { Panel } from 'react-infinite-canvas';
+        <ExampleBlock preview={<PanelExample />} files={[{ name: 'App.jsx', code: `import { Panel } from '@infinit-canvas/react';
 
 <InfiniteCanvas ...>
   <Panel position="top-right">
@@ -28,7 +28,7 @@ export default function PanelPage() {
 </InfiniteCanvas>` }]} />
 
         <h2 id="usage">Usage</h2>
-        <pre><code>{`import { Panel } from 'react-infinite-canvas';
+        <pre><code>{`import { Panel } from '@infinit-canvas/react';
 
 <InfiniteCanvas ...>
   <Panel position="top-right">

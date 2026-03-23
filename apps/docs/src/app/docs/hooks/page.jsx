@@ -25,7 +25,7 @@ export default function HooksPage() {
         <p>
           Manages the nodes array. Returns <code>[nodes, setNodes, onNodesChange]</code>.
         </p>
-        <pre><code>{`import { useNodesState } from 'react-infinite-canvas';
+        <pre><code>{`import { useNodesState } from '@infinit-canvas/react';
 
 const [nodes, setNodes, onNodesChange] = useNodesState([
   { id: '1', position: { x: 0, y: 0 }, data: { label: 'Node 1' } },
@@ -41,7 +41,7 @@ setNodes([...nodes, { id: '2', position: { x: 200, y: 0 }, data: { label: 'Node 
         <p>
           Manages the edges array. Returns <code>[edges, setEdges, onEdgesChange]</code>.
         </p>
-        <pre><code>{`import { useEdgesState } from 'react-infinite-canvas';
+        <pre><code>{`import { useEdgesState } from '@infinit-canvas/react';
 
 const [edges, setEdges, onEdgesChange] = useEdgesState([
   { id: 'e1-2', source: '1', target: '2' },
@@ -54,7 +54,7 @@ const [edges, setEdges, onEdgesChange] = useEdgesState([
           The main imperative API hook. Provides methods for reading/writing nodes, edges,
           and the viewport programmatically.
         </p>
-        <pre><code>{`import { useReactFlow } from 'react-infinite-canvas';
+        <pre><code>{`import { useReactFlow } from '@infinit-canvas/react';
 
 const {
   // Node/Edge access

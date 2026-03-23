@@ -8,8 +8,8 @@ import {
   Controls, MiniMap, Background, Panel, Handle,
   NodeToolbar, BaseEdge, EdgeLabelRenderer,
   getBezierPath, getSmoothStepPath,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 // ── Custom Nodes ─────────────────────────────────────────────
 

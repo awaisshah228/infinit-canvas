@@ -6,7 +6,7 @@ const appCode = [
   'import {',
   '  InfiniteCanvas, useNodesState, useEdgesState, addEdge,',
   '  Controls, Background,',
-  '} from "react-infinite-canvas";',
+  '} from "@infinit-canvas/react";',
   'import useCopyPaste from "./useCopyPaste";',
   '',
   'const initialNodes = [',

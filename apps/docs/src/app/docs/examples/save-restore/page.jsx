@@ -6,7 +6,7 @@ const APP_CODE = `import { useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background, Panel,
-} from 'react-infinite-canvas';
+} from '@infinit-canvas/react';
 
 const STORAGE_KEY = 'ric-save-restore';
 

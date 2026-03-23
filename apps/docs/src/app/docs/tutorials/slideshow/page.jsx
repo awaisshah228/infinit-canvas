@@ -6,15 +6,15 @@ const APP_CODE = `import { useState, useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState,
   Background, Panel,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 const slides = [
   { title: 'Welcome', content: 'This is a slideshow built with Infinite Canvas.' },
   { title: 'Nodes', content: 'Nodes are the building blocks of your canvas.' },
   { title: 'Edges', content: 'Edges connect nodes with bezier, straight, or step paths.' },
   { title: 'Handles', content: 'Handles define where edges connect to nodes.' },
-  { title: 'Thank You', content: 'Start building with react-infinite-canvas!' },
+  { title: 'Thank You', content: 'Start building with @infinit-canvas/react!' },
 ];
 
 function SlideNode({ data }) {

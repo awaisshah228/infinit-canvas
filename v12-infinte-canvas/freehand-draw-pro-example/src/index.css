@@ -1,0 +1,55 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.react-flow__node-freehand {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+  padding: 0;
+  pointer-events: none !important;
+}
+
+.react-flow__node-freehand.selectable:focus,
+.react-flow__node-freehand.selectable:focus:active,
+.react-flow__node-freehand.selectable:hover,
+.react-flow__node-freehand.draggable:hover {
+  box-shadow: none;
+  border: none;
+}
+
+.freehand-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  height: 100%;
+  width: 100%;
+  transform-origin: top left;
+  cursor: crosshair;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+.freehand-overlay svg {
+  width: 100%;
+  height: 100%;
+}
+
+.freehand-drawing {
+  cursor: crosshair;
+}
+
+.react-flow__resize-control {
+  pointer-events: all;
+}

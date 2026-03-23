@@ -6,8 +6,8 @@ const APP_CODE = `import { useState, useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background, Panel,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 let id = 1;
 const getId = () => \`dnd_\${id++}\`;

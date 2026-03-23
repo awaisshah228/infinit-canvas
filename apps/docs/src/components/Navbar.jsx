@@ -41,7 +41,7 @@ export default function Navbar() {
         </div>
         <div className="navbar-right">
           <a
-            href="https://github.com/user/react-infinite-canvas"
+            href="https://github.com/user/@infinit-canvas/react"
             target="_blank"
             rel="noopener noreferrer"
             className="navbar-icon"

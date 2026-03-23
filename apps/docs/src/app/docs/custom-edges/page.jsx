@@ -20,7 +20,7 @@ export default function CustomEdgesPage() {
           receive source and target positions and render any SVG path or shape.
         </p>
 
-        <ExampleBlock preview={<CustomEdgesExample />} files={[{ name: 'App.jsx', code: `import { BaseEdge, EdgeLabelRenderer, getBezierPath } from 'react-infinite-canvas';
+        <ExampleBlock preview={<CustomEdgesExample />} files={[{ name: 'App.jsx', code: `import { BaseEdge, EdgeLabelRenderer, getBezierPath } from '@infinit-canvas/react';
 
 function ButtonEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }) {
   const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
@@ -72,7 +72,7 @@ const edgeTypes = { button: ButtonEdge };` }]} />
           A custom edge is a React component that renders an SVG <code>&lt;path&gt;</code>.
           Use the <code>BaseEdge</code> component and path utilities to simplify creation.
         </p>
-        <pre><code>{`import { BaseEdge, EdgeLabelRenderer, getBezierPath } from 'react-infinite-canvas';
+        <pre><code>{`import { BaseEdge, EdgeLabelRenderer, getBezierPath } from '@infinit-canvas/react';
 
 function CustomEdge({
   id,
@@ -158,7 +158,7 @@ function CustomEdge({
   getSimpleBezierPath,
   getSmoothStepPath,
   getStraightPath,
-} from 'react-infinite-canvas';
+} from '@infinit-canvas/react';
 
 const [path, labelX, labelY] = getBezierPath({
   sourceX, sourceY,
