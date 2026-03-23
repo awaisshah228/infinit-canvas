@@ -104,6 +104,13 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 
   // Delete
   onDelete={onDelete}
+  onBeforeDelete={onBeforeDelete}
+  onError={onError}
+
+  // Selection drag events
+  onSelectionDragStart={onSelectionDragStart}
+  onSelectionDrag={onSelectionDrag}
+  onSelectionDragStop={onSelectionDragStop}
 
   // Behavior
   nodesDraggable={true}
@@ -123,10 +130,16 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
   translateExtent={[[-Infinity, -Infinity], [Infinity, Infinity]]}
   deleteKeyCode="Delete"
   connectionRadius={20}
+  connectionMode="loose"
+  connectOnClick={false}
   connectionLineType="bezier"
   defaultEdgeOptions={{}}
   colorMode="light"
   nodeOrigin={[0, 0]}
+  elevateNodesOnSelect={false}
+  elevateEdgesOnSelect={false}
+  noDragClassName="nodrag"
+  noPanClassName="nopan"
 
   // Appearance
   dark={false}
@@ -263,24 +276,16 @@ This package mirrors the React Flow API so migration is straightforward. Here's 
 | Pan on scroll | Yes | Yes |
 | Selection mode (Full/Partial) | Yes | Yes |
 | Undo/redo | No | Yes |
-
----
-
-### What's Missing (vs React Flow)
-
-Only a few features remain unimplemented:
-
-| Feature | React Flow Prop/API | Status |
-|---|---|---|
-| `noDragClassName` | CSS class to prevent drag on specific elements | Missing |
-| `noPanClassName` | CSS class to prevent pan on specific elements | Missing |
-| Sub-flows / parent nodes | `parentId`, `extent: 'parent'` | Missing |
-| Click-to-connect | `connectOnClick` | Missing |
-| Connection mode | `connectionMode` (Strict/Loose) | Missing |
-| Elevate on select | `elevateNodesOnSelect` | Missing |
-| `onBeforeDelete` | Pre-delete validation callback | Missing |
-| `onError` | Error boundary callback | Missing |
-| `onSelectionDragStart` / `Drag` / `Stop` | Selection drag events | Missing |
+| `noDragClassName` | Yes | Yes |
+| `noPanClassName` | Yes | Yes |
+| Sub-flows / parent nodes (`parentId`, `extent: 'parent'`) | Yes | Yes |
+| Click-to-connect (`connectOnClick`) | Yes | Yes |
+| Connection mode (Strict/Loose) | Yes | Yes |
+| Elevate nodes on select | Yes | Yes |
+| Elevate edges on select | Yes | Yes |
+| `onBeforeDelete` (pre-delete validation) | Yes | Yes |
+| `onError` (error boundary callback) | Yes | Yes |
+| Selection drag events (`onSelectionDragStart/Drag/Stop`) | Yes | Yes |
 
 ---
 
@@ -389,7 +394,7 @@ onHudUpdate callback  <──postMessage──  HUD data (throttled to 100ms)
 ```bash
 yarn install
 yarn dev          # Run all apps
-yarn dev:react    # React demo at http://localhost:3000
+yarn dev:react    # React demo at http://localhost:3001
 yarn build        # Build everything
 ```
 
