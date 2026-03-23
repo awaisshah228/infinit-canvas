@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@infinit-canvas/react.svg)](https://www.npmjs.com/package/@infinit-canvas/react)
 [![license](https://img.shields.io/npm/l/@infinit-canvas/react.svg)](https://github.com/awaisshah228/infinit-canvas/blob/main/LICENSE)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/awaisshah228)
 
 A high-performance infinite canvas React component powered by **OffscreenCanvas + Web Workers**. Drop-in React Flow compatible API — but renders on a canvas for **10x better performance** at scale.
 
