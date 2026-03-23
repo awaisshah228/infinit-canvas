@@ -100,6 +100,18 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     const el = wrapperRef.current;
     if (el) el.setPointerCapture(e.pointerId);
 
+    // Throttle React state updates — commit at most every 16ms (60fps)
+    let rafPending = null;
+    let latestChanges = null;
+
+    const commitToReact = () => {
+      if (latestChanges) {
+        store.onNodesChangeRef.current?.(latestChanges);
+        latestChanges = null;
+      }
+      rafPending = null;
+    };
+
     const onMove = (ev) => {
       if (!dragRef.current) return;
       const cam = store.cameraRef.current;
@@ -132,6 +144,28 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
         }
       }
 
+      // Immediately update DOM position (bypass React for smooth dragging)
+      if (el) {
+        el.style.left = newPos.x + 'px';
+        el.style.top = newPos.y + 'px';
+      }
+      // Also move other selected nodes directly in DOM
+      for (const s of dragRef.current.selectedStarts) {
+        let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
+        if (store.snapToGrid && store.snapGrid) {
+          sPos = {
+            x: store.snapGrid[0] * Math.round(sPos.x / store.snapGrid[0]),
+            y: store.snapGrid[1] * Math.round(sPos.y / store.snapGrid[1]),
+          };
+        }
+        const sEl = wrap.querySelector(`[data-nodeid="${s.id}"]`);
+        if (sEl) {
+          sEl.style.left = sPos.x + 'px';
+          sEl.style.top = sPos.y + 'px';
+        }
+      }
+
+      // Batch React state updates via RAF (throttle to ~60fps)
       const changes = [{ id: node.id, type: 'position', position: newPos, dragging: true }];
       for (const s of dragRef.current.selectedStarts) {
         let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
@@ -143,11 +177,19 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
         }
         changes.push({ id: s.id, type: 'position', position: sPos, dragging: true });
       }
-      store.onNodesChangeRef.current?.(changes);
+      latestChanges = changes;
+      if (!rafPending) {
+        rafPending = requestAnimationFrame(commitToReact);
+      }
     };
 
     const onUp = (ev) => {
       if (!dragRef.current) return;
+      // Flush any pending RAF update
+      if (rafPending) {
+        cancelAnimationFrame(rafPending);
+        commitToReact();
+      }
       const changes = [{ id: node.id, type: 'position', dragging: false }];
       for (const s of dragRef.current.selectedStarts) {
         changes.push({ id: s.id, type: 'position', dragging: false });
