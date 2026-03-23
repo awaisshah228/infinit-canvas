@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useContext, useRef } from 'react';
+import { memo, useCallback, useState, useContext, useRef, useEffect, useReducer } from 'react';
 import InfiniteCanvasContext from '../../context/InfiniteCanvasContext.js';
 
 const DEFAULT_NODE_WIDTH = 160;
@@ -180,18 +180,31 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
     wrap.addEventListener('pointerup', onUp);
   }, [edge]);
 
-  // Look up only the two nodes this edge connects to
-  const srcNode = nodes.find((n) => n.id === edge.source);
-  const tgtNode = nodes.find((n) => n.id === edge.target);
+  // Use nodesRef (mutable, updated during drag) for position lookups,
+  // falling back to the nodes prop for initial render / non-drag state.
+  const s = storeRef.current;
+  const liveNodes = s.nodesRef?.current || nodes;
+  const srcNode = liveNodes.find((n) => n.id === edge.source);
+  const tgtNode = liveNodes.find((n) => n.id === edge.target);
 
-  const srcReady = srcNode && !!(srcNode.width || srcNode.measured?.width);
-  const tgtReady = tgtNode && !!(tgtNode.width || tgtNode.measured?.width);
+  // Re-render while a connected node is being dragged (RAF loop)
+  const [, forceRender] = useReducer((c) => c + 1, 0);
+  const rafRef = useRef(null);
+  const isDragging = srcNode?.dragging || tgtNode?.dragging;
+  useEffect(() => {
+    if (!isDragging) return;
+    const tick = () => {
+      forceRender();
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [isDragging]);
 
   // Always prefer the mutable handle registry for latest positions
-  const s = storeRef.current;
   const handleRegistry = s.handleRegistryRef?.current;
-  const src = srcReady ? resolveHandlePosition(srcNode, 'source', edge.sourceHandle, handleRegistry) : null;
-  const tgt = tgtReady ? resolveHandlePosition(tgtNode, 'target', edge.targetHandle, handleRegistry) : null;
+  const src = srcNode ? resolveHandlePosition(srcNode, 'source', edge.sourceHandle, handleRegistry) : null;
+  const tgt = tgtNode ? resolveHandlePosition(tgtNode, 'target', edge.targetHandle, handleRegistry) : null;
 
   const isBezier = edge.type === 'bezier' || edge.type === 'simplebezier' || edge.type === 'default';
   const routedEdges = s.routedEdges || s.edges;
