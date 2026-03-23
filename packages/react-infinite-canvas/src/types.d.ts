@@ -337,6 +337,13 @@ export interface InfiniteCanvasProps {
   edgesReconnectable?: boolean;
   elevateNodesOnSelect?: boolean;
   elevateEdgesOnSelect?: boolean;
+  noDragClassName?: string;
+  noPanClassName?: string;
+
+  // Selection drag events
+  onSelectionDragStart?: SelectionDragHandler;
+  onSelectionDrag?: SelectionDragHandler;
+  onSelectionDragStop?: SelectionDragHandler;
 
   // DOM event passthrough
   onDragOver?: (event: React.DragEvent) => void;

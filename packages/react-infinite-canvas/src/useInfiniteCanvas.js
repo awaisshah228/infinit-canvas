@@ -119,6 +119,12 @@ export default function useInfiniteCanvas({
   autoPanSpeed = 5,
   edgesReconnectable = false,
   elevateNodesOnSelect = false,
+  elevateEdgesOnSelect = false,
+  noDragClassName = 'nodrag',
+  noPanClassName = 'nopan',
+  onSelectionDragStart,
+  onSelectionDrag,
+  onSelectionDragStop,
   edgeRouting = true,
 } = {}) {
   const wrapRef = useRef(null);
@@ -165,6 +171,7 @@ export default function useInfiniteCanvas({
     onPaneClick, onPaneContextMenu, onPaneMouseEnter, onPaneMouseMove, onPaneMouseLeave,
     onSelectionChange, onConnectStart, onConnectEnd,
     onInit, onMoveStart, onMove, onMoveEnd, onDelete, onBeforeDelete, onError,
+    onSelectionDragStart, onSelectionDrag, onSelectionDragStop,
     isValidConnection,
   };
   // Shorthand accessors (keeps rest of code cleaner)
@@ -443,6 +450,10 @@ export default function useInfiniteCanvas({
       if (e.data.type === 'hud') onHudUpdateRef.current?.(e.data.data);
       if (e.data.type === 'ready') setCanvasReady(true);
       if (e.data.type === 'nodesProcessed') onNodesProcessedRef.current?.(e.data.data);
+      if (e.data.type === 'error') refs.current.onError?.('worker-error', e.data.message || 'Canvas worker error');
+    };
+    worker.onerror = (err) => {
+      refs.current.onError?.('worker-error', err.message || 'Canvas worker crashed');
     };
 
     workerRef.current = worker;
@@ -576,6 +587,24 @@ export default function useInfiniteCanvas({
       }
     }
 
+    // Check if the event target (or ancestor) has the noDragClassName or noPanClassName
+    const hasNoDragClass = (el) => {
+      let target = el;
+      while (target && target !== wrapRef.current) {
+        if (target.classList?.contains(noDragClassName)) return true;
+        target = target.parentElement;
+      }
+      return false;
+    };
+    const hasNoPanClass = (el) => {
+      let target = el;
+      while (target && target !== wrapRef.current) {
+        if (target.classList?.contains(noPanClassName)) return true;
+        target = target.parentElement;
+      }
+      return false;
+    };
+
     // Node hit
     if (hasNodes) {
       const node = findNodeAt(world.x, world.y);
@@ -619,7 +648,8 @@ export default function useInfiniteCanvas({
         onNodeClickRef.current?.(e, node);
 
         // Start drag (drag all selected if this node is selected)
-        if (nodesDraggable) {
+        // Skip drag if the clicked element has the noDragClassName
+        if (nodesDraggable && !hasNoDragClass(e.target)) {
           // Only multi-drag when Shift is held AND node was already selected
           // (nodesRef is stale after onNodesChange — can't trust .selected on other nodes)
           const isMultiDrag = isMulti && node.selected;
@@ -661,6 +691,11 @@ export default function useInfiniteCanvas({
           };
           wrapRef.current?.setPointerCapture(e.pointerId);
           onNodeDragStartRef.current?.(e, node);
+          // Fire selection drag start when dragging multiple selected nodes
+          if (dragNodeRef.current.selectedStarts.length > 0) {
+            const selectedNodes = nodesRef.current.filter((n) => n.selected);
+            refs.current.onSelectionDragStart?.(e, selectedNodes);
+          }
           if (onNodesChangeRef.current) {
             const dragChanges = [{ id: node.id, type: 'position', dragging: true }];
             for (const s of dragNodeRef.current.selectedStarts) {
@@ -694,6 +729,16 @@ export default function useInfiniteCanvas({
           }
           if (changes.length) {
             onEdgesChangeRef.current(changes);
+            // Elevate selected edge to top by moving to end of array
+            if (elevateEdgesOnSelect && !isMulti) {
+              const idx = edgesRef.current.findIndex((ed) => ed.id === edge.id);
+              if (idx >= 0 && idx < edgesRef.current.length - 1) {
+                onEdgesChangeRef.current([
+                  { id: edge.id, type: 'remove' },
+                  { type: 'add', item: { ...edgesRef.current[idx], selected: true } },
+                ]);
+              }
+            }
             notifySelectionChange();
           }
         }
@@ -721,12 +766,13 @@ export default function useInfiniteCanvas({
       return;
     }
 
-    // Canvas pan
+    // Canvas pan — skip if clicked element has noPanClassName
+    if (hasNoPanClass(e.target)) return;
     draggingRef.current = true;
     lastPtRef.current = { x: e.clientX, y: e.clientY };
     wrapRef.current?.classList.add('dragging');
     wrapRef.current?.setPointerCapture(e.pointerId);
-  }, [screenToWorld, findNodeAt, findHandleAt, findEdgeAt, nodesDraggable, nodesConnectable, elementsSelectable, selectionOnDrag, sendConnecting, sendSelectionBox, notifySelectionChange]);
+  }, [screenToWorld, findNodeAt, findHandleAt, findEdgeAt, nodesDraggable, nodesConnectable, elementsSelectable, selectionOnDrag, sendConnecting, sendSelectionBox, notifySelectionChange, noDragClassName, noPanClassName]);
 
   const onPointerMove = useCallback((e) => {
     // Connection drag
@@ -900,6 +946,11 @@ export default function useInfiniteCanvas({
 
       const node = nodesRef.current.find((n) => n.id === drag.id);
       if (node) onNodeDragRef.current?.(e, node);
+      // Fire selection drag when dragging multiple selected nodes
+      if (drag.selectedStarts.length > 0) {
+        const selectedNodes = nodesRef.current.filter((n) => n.selected);
+        refs.current.onSelectionDrag?.(e, selectedNodes);
+      }
       return;
     }
 
@@ -987,6 +1038,11 @@ export default function useInfiniteCanvas({
       // Clear drag ref AFTER React processes the state update and useEffect runs.
       // requestAnimationFrame fires after React commit + effects, ensuring the
       // useEffect sees dragNodeRef as set and merges positions correctly.
+      // Fire selection drag stop when dragging multiple selected nodes
+      if (drag.selectedStarts.length > 0) {
+        const selectedNodes = nodesRef.current.filter((n) => n.selected);
+        refs.current.onSelectionDragStop?.(e, selectedNodes);
+      }
       requestAnimationFrame(() => { dragNodeRef.current = null; });
       const node = nodesRef.current.find((n) => n.id === drag.id);
       if (node) onNodeDragStopRef.current?.(e, node);
@@ -1199,8 +1255,13 @@ export default function useInfiniteCanvas({
 
         // onBeforeDelete can cancel
         if (refs.current.onBeforeDelete) {
-          const ok = await refs.current.onBeforeDelete({ nodes: selectedNodes, edges: selectedEdges });
-          if (!ok) return;
+          try {
+            const ok = await refs.current.onBeforeDelete({ nodes: selectedNodes, edges: selectedEdges });
+            if (!ok) return;
+          } catch (err) {
+            refs.current.onError?.('before-delete-error', err.message || 'onBeforeDelete threw an error');
+            return;
+          }
         }
 
         const selectedNodeIds = new Set(selectedNodes.map((n) => n.id));
@@ -1390,12 +1451,13 @@ export default function useInfiniteCanvas({
     viewportListeners, selectionListeners,
     zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent,
     defaultEdgeOptions, edgeRouting, resolvedNodesRef,
+    noDragClassName, noPanClassName,
     get nodes() { return nodes; },
     get edges() { return edges; },
     get routedEdges() { return routedEdgesForReact; },
     get viewport() { return viewport; },
     get connection() { return connection; },
-  }), [nodes, edges, routedEdgesForReact, viewport, connection, sendCamera, screenToWorld, syncNodesToWorker, viewportListeners, selectionListeners, zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent, defaultEdgeOptions, edgeRouting]);
+  }), [nodes, edges, routedEdgesForReact, viewport, connection, sendCamera, screenToWorld, syncNodesToWorker, viewportListeners, selectionListeners, zoomMin, zoomMax, snapToGrid, snapGrid, nodeExtent, defaultEdgeOptions, edgeRouting, noDragClassName, noPanClassName]);
 
   return {
     wrapRef, canvasRef, canvasReady,

@@ -40,9 +40,11 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' ||
         tag === 'A' || tag === 'LABEL' || e.target.isContentEditable) return;
+    const noDragCls = store.noDragClassName || 'nodrag';
+    const noPanCls = store.noPanClassName || 'nopan';
     let target = e.target;
     while (target && target !== wrapperRef.current) {
-      if (target.classList?.contains('nodrag') || target.classList?.contains('nopan')) return;
+      if (target.classList?.contains(noDragCls) || target.classList?.contains(noPanCls)) return;
       target = target.parentElement;
     }
 

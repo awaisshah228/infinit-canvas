@@ -97,6 +97,10 @@ export default function InfiniteCanvas({
   preventScrolling, translateExtent, nodeExtent,
   autoPanOnNodeDrag, autoPanOnConnect, autoPanSpeed,
   edgesReconnectable, elevateNodesOnSelect, elevateEdgesOnSelect,
+  noDragClassName, noPanClassName,
+
+  // Selection drag events
+  onSelectionDragStart, onSelectionDrag, onSelectionDragStop,
 
   // Edge routing (obstacle avoidance)
   edgeRouting = true,
@@ -193,7 +197,9 @@ export default function InfiniteCanvas({
     zoomOnScroll, zoomOnDoubleClick, zoomOnPinch,
     preventScrolling, translateExtent, nodeExtent,
     autoPanOnNodeDrag, autoPanOnConnect, autoPanSpeed,
-    edgesReconnectable, elevateNodesOnSelect,
+    edgesReconnectable, elevateNodesOnSelect, elevateEdgesOnSelect,
+    noDragClassName, noPanClassName,
+    onSelectionDragStart, onSelectionDrag, onSelectionDragStop,
     edgeRouting,
   });
 
