@@ -64,10 +64,8 @@ export function createAppStore(
       edges: initialState?.edges ?? [],
       ...initialState,
 
-      onNodesChange: async (changes) => {
+      onNodesChange: (changes) => {
         const nextNodes = applyNodeChanges(changes, get().nodes);
-        set({ nodes: nextNodes });
-
         set({ nodes: nextNodes });
       },
 

@@ -173,10 +173,13 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
         data: { updates },
       });
 
-      // Also update nodesRef in-place so other code sees current positions
+      // Also update nodesRef so other code sees current positions.
+      // Clone the node objects to avoid mutating the immutable store state.
       for (const u of updates) {
-        const n = storeRef.current.nodesRef.current.find((nd) => nd.id === u.id);
-        if (n) n.position = u.position;
+        const idx = storeRef.current.nodesRef.current.findIndex((nd) => nd.id === u.id);
+        if (idx >= 0) {
+          storeRef.current.nodesRef.current[idx] = { ...storeRef.current.nodesRef.current[idx], position: u.position };
+        }
       }
 
       latestPositions = updates;

@@ -269,63 +269,68 @@ export default function InfiniteCanvas({
   const domNodeLimitRef = useRef(domNodeLimit);
   domNodeLimitRef.current = domNodeLimit;
 
-  useEffect(() => {
-    let timer;
-    const update = () => {
-      const customNodes = allCustomNodesRef.current;
-      const limit = domNodeLimitRef.current;
-      if (limit === 0 || !customNodes.length) return;
+  const runSpatialUpdate = useCallback(() => {
+    const customNodes = allCustomNodesRef.current;
+    const limit = domNodeLimitRef.current;
+    if (limit === 0 || !customNodes.length) return;
 
-      const cam = baseStore.cameraRef.current;
-      const wrap = baseStore.wrapRef.current;
-      if (!wrap) return;
-      const ww = wrap.clientWidth;
-      const wh = wrap.clientHeight;
-      const cx = (-cam.x + ww / 2) / cam.zoom;
-      const cy = (-cam.y + wh / 2) / cam.zoom;
-      const pinned = pinnedRef.current;
+    const cam = baseStore.cameraRef.current;
+    const wrap = baseStore.wrapRef.current;
+    if (!wrap) return;
+    const ww = wrap.clientWidth;
+    const wh = wrap.clientHeight;
+    const cx = (-cam.x + ww / 2) / cam.zoom;
+    const cy = (-cam.y + wh / 2) / cam.zoom;
+    const pinned = pinnedRef.current;
 
-      // Count slots already taken by pinned + selected
-      let taken = pinned.size;
+    // Count slots already taken by pinned + selected
+    let taken = pinned.size;
+    for (const n of customNodes) {
+      if (n.selected || n.dragging) taken++;
+    }
+    const remaining = Math.max(0, limit - taken);
+
+    if (remaining === 0) {
+      setSpatialIds((prev) => prev.size === 0 ? prev : new Set());
+    } else {
+      const takenIds = new Set(pinned);
       for (const n of customNodes) {
-        if (n.selected || n.dragging) taken++;
+        if (n.selected || n.dragging) takenIds.add(n.id);
       }
-      const remaining = Math.max(0, limit - taken);
-
-      if (remaining === 0) {
-        setSpatialIds((prev) => prev.size === 0 ? prev : new Set());
-      } else {
-        const takenIds = new Set(pinned);
-        for (const n of customNodes) {
-          if (n.selected || n.dragging) takenIds.add(n.id);
-        }
-        const scored = [];
-        for (let i = 0; i < customNodes.length; i++) {
-          const n = customNodes[i];
-          if (takenIds.has(n.id)) continue;
-          const pos = n._absolutePosition || n.position;
-          const dx = pos.x + (n.width || 160) / 2 - cx;
-          const dy = pos.y + (n.height || 60) / 2 - cy;
-          scored.push({ id: n.id, dist: dx * dx + dy * dy });
-        }
-        scored.sort((a, b) => a.dist - b.dist);
-
-        const ids = new Set();
-        for (let i = 0; i < Math.min(remaining, scored.length); i++) {
-          ids.add(scored[i].id);
-        }
-        setSpatialIds((prev) => {
-          if (prev.size !== ids.size) return ids;
-          for (const id of ids) { if (!prev.has(id)) return ids; }
-          return prev;
-        });
+      const scored = [];
+      for (let i = 0; i < customNodes.length; i++) {
+        const n = customNodes[i];
+        if (takenIds.has(n.id)) continue;
+        const pos = n._absolutePosition || n.position;
+        const dx = pos.x + (n.width || 160) / 2 - cx;
+        const dy = pos.y + (n.height || 60) / 2 - cy;
+        scored.push({ id: n.id, dist: dx * dx + dy * dy });
       }
-    };
-    // Run once after mount, then every 500ms
-    const initialTimer = setTimeout(update, 100);
-    timer = setInterval(update, 500);
+      scored.sort((a, b) => a.dist - b.dist);
+
+      const ids = new Set();
+      for (let i = 0; i < Math.min(remaining, scored.length); i++) {
+        ids.add(scored[i].id);
+      }
+      setSpatialIds((prev) => {
+        if (prev.size !== ids.size) return ids;
+        for (const id of ids) { if (!prev.has(id)) return ids; }
+        return prev;
+      });
+    }
+  }, [baseStore.cameraRef, baseStore.wrapRef]);
+
+  useEffect(() => {
+    const initialTimer = setTimeout(runSpatialUpdate, 100);
+    const timer = setInterval(runSpatialUpdate, 500);
     return () => { clearTimeout(initialTimer); clearInterval(timer); };
-  }, [baseStore.cameraRef, baseStore.wrapRef]); // stable refs only — no re-run loop
+  }, [runSpatialUpdate]);
+
+  // Run spatial check immediately when selection changes so deselected nodes
+  // get re-promoted via spatialIds before their NodeWrapper unmounts.
+  useEffect(() => {
+    runSpatialUpdate();
+  }, [allCustomNodes, runSpatialUpdate]);
 
   // Convert canvasNodeTypes to ImageBitmaps and send to worker.
   // Supports static values (string, Image, Canvas, ImageBitmap) and

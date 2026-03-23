@@ -313,10 +313,10 @@ export default function useInfiniteCanvas({
       for (const n of nodesRef.current) {
         if (draggedIds.has(n.id)) oldPositions[n.id] = { ...n.position };
       }
-      nodesRef.current = [...nodes];
-      for (const n of nodesRef.current) {
-        if (oldPositions[n.id]) n.position = oldPositions[n.id];
-      }
+      nodesRef.current = nodes.map((n) => {
+        if (oldPositions[n.id]) return { ...n, position: oldPositions[n.id] };
+        return n;
+      });
       { const m = nodeLookupRef.current; m.clear(); for (const n of nodesRef.current) m.set(n.id, n); }
       resolvedNodesRef.current = resolveAbsolutePositions(nodesRef.current);
       // Still sync to worker so selection/other state changes are reflected
@@ -1095,7 +1095,14 @@ export default function useInfiniteCanvas({
         const selectedNodes = nodesRef.current.filter((n) => n.selected);
         refs.current.onSelectionDragStop?.(e, selectedNodes);
       }
-      requestAnimationFrame(() => { dragNodeRef.current = null; });
+      const dragEndId = drag.id;
+      requestAnimationFrame(() => {
+        // Only clear if the drag ref still belongs to this drag — a rapid click
+        // on another node may have already started a new drag before this rAF fires.
+        if (dragNodeRef.current && dragNodeRef.current.id === dragEndId) {
+          dragNodeRef.current = null;
+        }
+      });
       const node = nodesRef.current.find((n) => n.id === drag.id);
       if (node) onNodeDragStopRef.current?.(e, node);
       return;
