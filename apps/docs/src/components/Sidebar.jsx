@@ -73,6 +73,20 @@ const NAV = [
     ],
   },
   {
+    title: 'Pro Examples',
+    links: [
+      { href: '/docs/pro-examples', label: 'All Examples' },
+      { href: '/docs/pro-examples/helper-lines', label: 'Helper Lines' },
+      { href: '/docs/pro-examples/copy-paste', label: 'Copy & Paste' },
+      { href: '/docs/pro-examples/undo-redo', label: 'Undo & Redo' },
+      { href: '/docs/pro-examples/expand-collapse', label: 'Expand / Collapse' },
+      { href: '/docs/pro-examples/shapes', label: 'Shapes' },
+      { href: '/docs/pro-examples/auto-layout', label: 'Auto Layout' },
+      { href: '/docs/pro-examples/force-layout', label: 'Force Layout' },
+      { href: '/docs/pro-examples/editable-edge', label: 'Editable Edge' },
+    ],
+  },
+  {
     title: 'API Reference',
     links: [
       { href: '/docs/api-reference', label: 'InfiniteCanvas' },

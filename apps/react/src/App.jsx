@@ -4,8 +4,8 @@ import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, MiniMap, Background,
   Handle, NodeToolbar, NodeResizer, getBezierPath,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 import CodeTabs from './components/CodeTabs';
 import StressTest from './StressTest';
 import StressTestFlow from './StressTestFlow';

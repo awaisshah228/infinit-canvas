@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
-import { InfiniteCanvas } from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+import { InfiniteCanvas } from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 const COLS = 50;
 const CARD_W = 160;

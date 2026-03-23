@@ -12,6 +12,8 @@
  */
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { snapPosition as snapPos, clampPosition, getNodesBounds, getViewportForBounds } from './utils/graph.js';
+import CanvasWorker from './worker/canvas.worker.js?worker&inline';
+import EdgeRouterWorker from './worker/edgeRouter.worker.js?worker&inline';
 
 const canvasWorkerMap = new WeakMap();
 
@@ -20,7 +22,7 @@ function getOrCreateWorker(canvas, initData) {
     return canvasWorkerMap.get(canvas);
   }
   const offscreen = canvas.transferControlToOffscreen();
-  const worker = new Worker(new URL('./worker/canvas.worker.js', import.meta.url));
+  const worker = new CanvasWorker();
   worker.onerror = (e) => console.error('[infinite-canvas] worker error:', e.message, e);
   worker.postMessage({ type: 'init', data: { ...initData, canvas: offscreen } }, [offscreen]);
   const entry = { worker };
@@ -32,7 +34,7 @@ let edgeRouterWorker = null;
 let edgeRouterReqId = 0;
 function getEdgeRouterWorker() {
   if (!edgeRouterWorker) {
-    edgeRouterWorker = new Worker(new URL('./worker/edgeRouter.worker.js', import.meta.url));
+    edgeRouterWorker = new EdgeRouterWorker();
     edgeRouterWorker.onerror = (e) => console.error('[edge-router] worker error:', e.message, e);
   }
   return edgeRouterWorker;

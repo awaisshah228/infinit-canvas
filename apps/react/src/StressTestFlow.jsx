@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { InfiniteCanvas, useNodesState, useEdgesState, addEdge } from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+import { InfiniteCanvas, useNodesState, useEdgesState, addEdge } from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 const COLS = 20;
 const NODE_W = 160;

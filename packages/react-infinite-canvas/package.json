@@ -1,21 +1,22 @@
 {
-  "name": "react-infinite-canvas",
+  "name": "@infinit-canvas/react",
   "version": "0.1.0",
   "description": "A performant infinite canvas React component powered by OffscreenCanvas and Web Workers",
   "type": "module",
-  "main": "./src/index.js",
-  "module": "./src/index.js",
+  "main": "./dist/react-infinite-canvas.cjs",
+  "module": "./dist/react-infinite-canvas.js",
   "types": "./src/types.d.ts",
   "exports": {
     ".": {
       "types": "./src/types.d.ts",
-      "import": "./src/index.js",
-      "default": "./src/index.js"
+      "import": "./dist/react-infinite-canvas.js",
+      "require": "./dist/react-infinite-canvas.cjs"
     },
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./dist/styles.css"
   },
   "files": [
-    "src"
+    "dist",
+    "src/types.d.ts"
   ],
   "sideEffects": false,
   "keywords": [
@@ -28,6 +29,13 @@
     "zoom"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/awaisshah228/infinit-canvas"
+  },
   "peerDependencies": {
     "react": ">=17.0.0",
     "react-dom": ">=17.0.0"

@@ -3,8 +3,8 @@ import { useState, useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState,
   Controls, Background, Handle, Panel,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 const slides = [
   { title: 'Welcome', content: 'This is a slideshow built with Infinite Canvas. Use the arrows to navigate.' },

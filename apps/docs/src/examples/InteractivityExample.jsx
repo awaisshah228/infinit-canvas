@@ -3,8 +3,8 @@ import { useState, useCallback } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState, addEdge,
   Controls, Background, Panel,
-} from 'react-infinite-canvas';
-import 'react-infinite-canvas/styles.css';
+} from '@infinit-canvas/react';
+import '@infinit-canvas/react/styles.css';
 
 const initialNodes = [
   { id: '1', type: 'input', position: { x: 0, y: 0 }, data: { label: 'Drag me' } },

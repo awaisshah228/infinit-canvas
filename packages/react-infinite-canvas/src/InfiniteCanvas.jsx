@@ -270,6 +270,7 @@ export default function InfiniteCanvas({
               height: 0,
               transformOrigin: '0 0',
               pointerEvents: 'none',
+              zIndex: 10,
             }}
           >
             {customNodes.map((node) => (
