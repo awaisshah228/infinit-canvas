@@ -1149,6 +1149,8 @@ export default function useInfiniteCanvas({
 
     const onMouseMove = (e) => {
       refs.current.onPaneMouseMove?.(e);
+      // Skip expensive hit testing during active pan/drag to keep panning smooth
+      if (draggingRef.current || dragNodeRef.current || connectingRef.current || selectionBoxRef.current) return;
       const world = screenToWorld(e.clientX, e.clientY);
       const node = findNodeAt(world.x, world.y);
       if (node !== lastHoverNode) {
