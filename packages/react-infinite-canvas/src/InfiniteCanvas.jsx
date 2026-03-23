@@ -168,6 +168,7 @@ export default function InfiniteCanvas({
   // Spatial promotion is added via RAF effect after baseStore is initialized.
   const [spatialIds, setSpatialIds] = useState(() => new Set());
   const prevPromotedRef = useRef(new Set());
+  const prevSelDragRef = useRef(new Set());
   const initialPromotedRef = useRef(true);
   const immediatePromotedIds = useMemo(() => {
     const ids = new Set(spatialIds);
@@ -180,9 +181,21 @@ export default function InfiniteCanvas({
     } else {
       initialPromotedRef.current = false;
     }
+    const selDrag = new Set();
     for (const n of allCustomNodes) {
-      if (n.selected || n.dragging) ids.add(n.id);
+      if (n.selected || n.dragging) {
+        ids.add(n.id);
+        selDrag.add(n.id);
+      }
     }
+    // Retain nodes that were promoted via selection/dragging in the previous
+    // render for one extra cycle.  This prevents unmount/remount jitter when a
+    // node is deselected — the spatial useEffect gets a chance to re-add the
+    // node to spatialIds before the NodeWrapper is removed from the tree.
+    for (const id of prevSelDragRef.current) {
+      ids.add(id);
+    }
+    prevSelDragRef.current = selDrag;
     // Stabilize: return previous reference if contents haven't changed
     const prev = prevPromotedRef.current;
     if (prev.size === ids.size) {
