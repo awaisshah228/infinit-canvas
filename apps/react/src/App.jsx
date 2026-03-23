@@ -9,6 +9,7 @@ import '@infinit-canvas/react/styles.css';
 import CodeTabs from './components/CodeTabs';
 import StressTest from './StressTest';
 import StressTestFlow from './StressTestFlow';
+// import StressTestCustom from './StressTestCustom';
 import './App.css';
 
 const INITIAL_CARDS = [
@@ -123,6 +124,7 @@ function Nav({ current }) {
     { to: '/cards', label: 'Cards', key: 'cards' },
     { to: '/stress', label: 'Stress (Cards)', key: 'stress' },
     { to: '/stress-flow', label: 'Stress (Nodes)', key: 'stress-flow' },
+    // { to: '/stress-custom', label: 'Stress (Custom)', key: 'stress-custom' },
   ];
   return (
     <nav style={{
@@ -267,6 +269,15 @@ function StressFlowPage() {
   );
 }
 
+// function StressCustomPage() {
+//   return (
+//     <div>
+//       <Nav current="stress-custom" />
+//       <StressTestCustom />
+//     </div>
+//   );
+// }
+
 export default function App() {
   return (
     <Routes>
@@ -275,6 +286,7 @@ export default function App() {
       <Route path="/cards" element={<CardsPage />} />
       <Route path="/stress" element={<StressPage />} />
       <Route path="/stress-flow" element={<StressFlowPage />} />
+      {/* <Route path="/stress-custom" element={<StressCustomPage />} /> */}
     </Routes>
   );
 }

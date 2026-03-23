@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.18",
-    "@infinit-canvas/react": "0.1.8",
+    "@infinit-canvas/react": "*",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

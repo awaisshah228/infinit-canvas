@@ -203,34 +203,31 @@ export default function useInfiniteCanvas({
   }, [multiSelectionKeyCode, panActivationKeyCode]);
 
   // Wrap onNodesChange/onEdgesChange to immediately push selection changes to the
-  // worker, bypassing the React render cycle. Without this, the selection border
-  // only appears after React commits → useEffect sends full nodes → worker re-renders,
-  // which causes a visible 1-frame lag.
+  // worker, bypassing the React render cycle.
+  // Use stable wrappers (not getters that create closures on every access).
   const onNodesChangeRef = { get current() {
-    const orig = refs.current.onNodesChange;
-    if (!orig) return null;
-    return (changes) => {
-      orig(changes);
-      const sels = [];
-      for (let i = 0; i < changes.length; i++) {
-        if (changes[i].type === 'select') sels.push({ id: changes[i].id, selected: changes[i].selected });
-      }
-      if (sels.length > 0) workerRef.current?.postMessage({ type: 'nodeSelections', data: { selections: sels } });
-    };
+    return refs.current.onNodesChange ? onNodesChangeWrapped : null;
   }};
+  const onNodesChangeWrapped = (changes) => {
+    refs.current.onNodesChange?.(changes);
+    const sels = [];
+    for (let i = 0; i < changes.length; i++) {
+      if (changes[i].type === 'select') sels.push({ id: changes[i].id, selected: changes[i].selected });
+    }
+    if (sels.length > 0) workerRef.current?.postMessage({ type: 'nodeSelections', data: { selections: sels } });
+  };
 
   const onEdgesChangeRef = { get current() {
-    const orig = refs.current.onEdgesChange;
-    if (!orig) return null;
-    return (changes) => {
-      orig(changes);
-      const sels = [];
-      for (let i = 0; i < changes.length; i++) {
-        if (changes[i].type === 'select') sels.push({ id: changes[i].id, selected: changes[i].selected });
-      }
-      if (sels.length > 0) workerRef.current?.postMessage({ type: 'edgeSelections', data: { selections: sels } });
-    };
+    return refs.current.onEdgesChange ? onEdgesChangeWrapped : null;
   }};
+  const onEdgesChangeWrapped = (changes) => {
+    refs.current.onEdgesChange?.(changes);
+    const sels = [];
+    for (let i = 0; i < changes.length; i++) {
+      if (changes[i].type === 'select') sels.push({ id: changes[i].id, selected: changes[i].selected });
+    }
+    if (sels.length > 0) workerRef.current?.postMessage({ type: 'edgeSelections', data: { selections: sels } });
+  };
 
   // Notify selection change listeners
   const notifySelectionChange = useCallback(() => {
@@ -315,6 +312,9 @@ export default function useInfiniteCanvas({
         if (oldPositions[n.id]) n.position = oldPositions[n.id];
       }
       resolvedNodesRef.current = resolveAbsolutePositions(nodesRef.current);
+      // Still sync to worker so selection/other state changes are reflected
+      const enriched = injectRegisteredHandles(resolvedNodesRef.current);
+      workerRef.current?.postMessage({ type: 'nodes', data: { nodes: enriched } });
       return;
     }
 
@@ -1072,13 +1072,7 @@ export default function useInfiniteCanvas({
         const selectedNodes = nodesRef.current.filter((n) => n.selected);
         refs.current.onSelectionDragStop?.(e, selectedNodes);
       }
-      requestAnimationFrame(() => {
-        dragNodeRef.current = null;
-        // Force a full sync so the worker picks up any selection changes
-        // that were skipped during the drag-active useEffect branch.
-        const enriched = injectRegisteredHandles(resolvedNodesRef.current);
-        workerRef.current?.postMessage({ type: 'nodes', data: { nodes: enriched } });
-      });
+      requestAnimationFrame(() => { dragNodeRef.current = null; });
       const node = nodesRef.current.find((n) => n.id === drag.id);
       if (node) onNodeDragStopRef.current?.(e, node);
       return;

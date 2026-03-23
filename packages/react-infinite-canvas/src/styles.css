@@ -119,6 +119,22 @@
   to { transform: rotate(360deg); }
 }
 
+/* LOD — hide handles and simplify nodes at low zoom for performance */
+.ric-wrap.lod-reduced .ric-handle {
+  display: none;
+}
+
+.ric-wrap.lod-minimal .ric-handle,
+.ric-wrap.lod-minimal .ric-node-wrapper * {
+  visibility: hidden;
+}
+.ric-wrap.lod-minimal .ric-node-wrapper {
+  visibility: visible;
+  background: #e2e8f0;
+  border-radius: 4px;
+  outline: 1px solid #cbd5e1;
+}
+
 /* Controls */
 .ric-controls-button:disabled {
   opacity: 0.35;

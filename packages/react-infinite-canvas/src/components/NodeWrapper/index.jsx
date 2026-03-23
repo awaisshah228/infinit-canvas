@@ -4,6 +4,8 @@ import { useCanvasStore } from '../../context/InfiniteCanvasContext.js';
 
 function NodeWrapper({ node, nodeType: NodeComponent }) {
   const store = useCanvasStore();
+  const storeRef = useRef(store);
+  storeRef.current = store;
   const wrapperRef = useRef(null);
   const pos = node._absolutePosition || node.position;
   const dragRef = useRef(null);
@@ -16,11 +18,12 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     const ro = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
-        const cur = store.nodesRef.current.find((n) => n.id === node.id);
+        const s = storeRef.current;
+        const cur = s.nodesRef.current.find((n) => n.id === node.id);
         const curW = cur?.width || cur?.measured?.width;
         const curH = cur?.height || cur?.measured?.height;
         if (Math.abs((curW || 0) - width) > 1 || Math.abs((curH || 0) - height) > 1) {
-          store.onNodesChangeRef.current?.([
+          s.onNodesChangeRef.current?.([
             { id: node.id, type: 'dimensions', dimensions: { width, height }, setAttributes: true },
           ]);
         }
@@ -28,7 +31,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [node.id, store]);
+  }, [node.id]);
 
   // Handle pointer events directly on the custom node DOM
   // This prevents the event from bubbling to the canvas wrapper
@@ -40,8 +43,8 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' ||
         tag === 'A' || tag === 'LABEL' || e.target.isContentEditable) return;
-    const noDragCls = store.noDragClassName || 'nodrag';
-    const noPanCls = store.noPanClassName || 'nopan';
+    const noDragCls = storeRef.current.noDragClassName || 'nodrag';
+    const noPanCls = storeRef.current.noPanClassName || 'nopan';
     let target = e.target;
     while (target && target !== wrapperRef.current) {
       if (target.classList?.contains(noDragCls) || target.classList?.contains(noPanCls)) return;
@@ -49,13 +52,13 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     }
 
     // Select this node
-    if (store.onNodesChangeRef.current) {
+    if (storeRef.current.onNodesChangeRef.current) {
       const changes = [];
       const isMulti = e.shiftKey;
       if (isMulti) {
         changes.push({ id: node.id, type: 'select', selected: !node.selected });
       } else {
-        for (const n of store.nodesRef.current) {
+        for (const n of storeRef.current.nodesRef.current) {
           if (n.id === node.id && !n.selected) {
             changes.push({ id: n.id, type: 'select', selected: true });
           } else if (n.id !== node.id && n.selected) {
@@ -63,12 +66,12 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
           }
         }
       }
-      if (changes.length) store.onNodesChangeRef.current(changes);
+      if (changes.length) storeRef.current.onNodesChangeRef.current(changes);
     }
 
     // Start drag
-    const cam = store.cameraRef.current;
-    const wrap = store.wrapRef.current;
+    const cam = storeRef.current.cameraRef.current;
+    const wrap = storeRef.current.wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
     const worldX = (e.clientX - rect.left - cam.x) / cam.zoom;
@@ -81,7 +84,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     // Works for both Shift+drag and clicking an already-selected node (e.g. after Ctrl+A).
     const isMultiDrag = node.selected;
     const selectedStarts = isMultiDrag
-      ? store.nodesRef.current
+      ? storeRef.current.nodesRef.current
           .filter((n) => n.selected && n.id !== node.id)
           .map((n) => ({ id: n.id, startPos: { ...n.position } }))
       : [];
@@ -97,7 +100,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     for (const s of selectedStarts) {
       dragChanges.push({ id: s.id, type: 'position', dragging: true });
     }
-    store.onNodesChangeRef.current?.(dragChanges);
+    storeRef.current.onNodesChangeRef.current?.(dragChanges);
 
     // Capture pointer on the node wrapper element (not the canvas wrap)
     // so pointer events don't trigger canvas pan/zoom handlers
@@ -110,7 +113,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
 
     const commitToReact = () => {
       if (latestChanges) {
-        store.onNodesChangeRef.current?.(latestChanges);
+        storeRef.current.onNodesChangeRef.current?.(latestChanges);
         latestChanges = null;
       }
       rafPending = null;
@@ -118,7 +121,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
 
     const onMove = (ev) => {
       if (!dragRef.current) return;
-      const cam = store.cameraRef.current;
+      const cam = storeRef.current.cameraRef.current;
       const rect = wrap.getBoundingClientRect();
       const wx = (ev.clientX - rect.left - cam.x) / cam.zoom;
       const wy = (ev.clientY - rect.top - cam.y) / cam.zoom;
@@ -127,15 +130,15 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
 
       let newPos = { x: dragRef.current.startPos.x + dx, y: dragRef.current.startPos.y + dy };
       // Snap to grid if enabled
-      if (store.snapToGrid && store.snapGrid) {
+      if (storeRef.current.snapToGrid && storeRef.current.snapGrid) {
         newPos = {
-          x: store.snapGrid[0] * Math.round(newPos.x / store.snapGrid[0]),
-          y: store.snapGrid[1] * Math.round(newPos.y / store.snapGrid[1]),
+          x: storeRef.current.snapGrid[0] * Math.round(newPos.x / storeRef.current.snapGrid[0]),
+          y: storeRef.current.snapGrid[1] * Math.round(newPos.y / storeRef.current.snapGrid[1]),
         };
       }
       // Clamp to parent boundary if extent === 'parent'
       if (node.parentId && node.extent === 'parent') {
-        const parent = store.nodesRef.current.find((n) => n.id === node.parentId);
+        const parent = storeRef.current.nodesRef.current.find((n) => n.id === node.parentId);
         if (parent) {
           const pw = parent.width || 160;
           const ph = parent.height || 60;
@@ -156,10 +159,10 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
       // Also move other selected nodes directly in DOM
       for (const s of dragRef.current.selectedStarts) {
         let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
-        if (store.snapToGrid && store.snapGrid) {
+        if (storeRef.current.snapToGrid && storeRef.current.snapGrid) {
           sPos = {
-            x: store.snapGrid[0] * Math.round(sPos.x / store.snapGrid[0]),
-            y: store.snapGrid[1] * Math.round(sPos.y / store.snapGrid[1]),
+            x: storeRef.current.snapGrid[0] * Math.round(sPos.x / storeRef.current.snapGrid[0]),
+            y: storeRef.current.snapGrid[1] * Math.round(sPos.y / storeRef.current.snapGrid[1]),
           };
         }
         const sEl = wrap.querySelector(`[data-nodeid="${s.id}"]`);
@@ -173,10 +176,10 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
       const changes = [{ id: node.id, type: 'position', position: newPos, dragging: true }];
       for (const s of dragRef.current.selectedStarts) {
         let sPos = { x: s.startPos.x + dx, y: s.startPos.y + dy };
-        if (store.snapToGrid && store.snapGrid) {
+        if (storeRef.current.snapToGrid && storeRef.current.snapGrid) {
           sPos = {
-            x: store.snapGrid[0] * Math.round(sPos.x / store.snapGrid[0]),
-            y: store.snapGrid[1] * Math.round(sPos.y / store.snapGrid[1]),
+            x: storeRef.current.snapGrid[0] * Math.round(sPos.x / storeRef.current.snapGrid[0]),
+            y: storeRef.current.snapGrid[1] * Math.round(sPos.y / storeRef.current.snapGrid[1]),
           };
         }
         changes.push({ id: s.id, type: 'position', position: sPos, dragging: true });
@@ -198,7 +201,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
       for (const s of dragRef.current.selectedStarts) {
         changes.push({ id: s.id, type: 'position', dragging: false });
       }
-      store.onNodesChangeRef.current?.(changes);
+      storeRef.current.onNodesChangeRef.current?.(changes);
       dragRef.current = null;
       if (el) el.releasePointerCapture(ev.pointerId);
       el?.removeEventListener('pointermove', onMove);
@@ -207,7 +210,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
 
     el?.addEventListener('pointermove', onMove);
     el?.addEventListener('pointerup', onUp);
-  }, [node, store]);
+  }, [node]);
 
   // Keyboard navigation — arrow keys move selected nodes
   const onKeyDown = useCallback((e) => {
@@ -221,12 +224,12 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
       case 'ArrowRight': dx = step; break;
       case 'Escape':
         // Deselect on Escape
-        store.onNodesChangeRef.current?.([{ id: node.id, type: 'select', selected: false }]);
+        storeRef.current.onNodesChangeRef.current?.([{ id: node.id, type: 'select', selected: false }]);
         return;
       case 'Delete':
       case 'Backspace':
         if (node.deletable !== false) {
-          store.onNodesChangeRef.current?.([{ id: node.id, type: 'remove' }]);
+          storeRef.current.onNodesChangeRef.current?.([{ id: node.id, type: 'remove' }]);
         }
         return;
       default: return;
@@ -235,13 +238,13 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     const newPos = { x: node.position.x + dx, y: node.position.y + dy };
     const changes = [{ id: node.id, type: 'position', position: newPos }];
     // Move all selected nodes together
-    for (const n of store.nodesRef.current) {
+    for (const n of storeRef.current.nodesRef.current) {
       if (n.selected && n.id !== node.id) {
         changes.push({ id: n.id, type: 'position', position: { x: n.position.x + dx, y: n.position.y + dy } });
       }
     }
-    store.onNodesChangeRef.current?.(changes);
-  }, [node, store]);
+    storeRef.current.onNodesChangeRef.current?.(changes);
+  }, [node]);
 
   const nw = node.width || node.measured?.width;
   const nh = node.height || node.measured?.height;

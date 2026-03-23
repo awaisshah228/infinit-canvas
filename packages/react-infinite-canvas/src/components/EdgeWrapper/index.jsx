@@ -1,5 +1,5 @@
-import { memo, useCallback, useState } from 'react';
-import { useCanvasStore } from '../../context/InfiniteCanvasContext.js';
+import { memo, useCallback, useState, useContext, useRef } from 'react';
+import InfiniteCanvasContext from '../../context/InfiniteCanvasContext.js';
 
 const DEFAULT_NODE_WIDTH = 160;
 const DEFAULT_NODE_HEIGHT = 60;
@@ -19,7 +19,7 @@ function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
     }
   }
 
-  // 2. Fallback to handle registry (mutable Map, may be stale but fast)
+  // 2. Fallback to handle registry (mutable Map, always current)
   if (handleRegistry) {
     const key = `${node.id}__${handleId || handleType}`;
     const registered = handleRegistry.get(key);
@@ -28,7 +28,7 @@ function resolveHandlePosition(node, handleType, handleId, handleRegistry) {
     }
   }
 
-  // 3. Fallback to node.handles array (static definitions for position-based fallback)
+  // 3. Fallback to node.handles array (static definitions)
   if (node.handles && node.handles.length) {
     for (const h of node.handles) {
       if (h.type === handleType && (!handleId || h.id === handleId)) {
@@ -80,21 +80,25 @@ function EdgeAnchor({ x, y, position, type, onPointerDown }) {
 }
 
 function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
-  const store = useCanvasStore();
-  const [hovering, setHovering] = useState(null); // 'source' | 'target' | null
+  // Read context directly — avoid useCanvasStore() which re-renders on viewport changes.
+  const ctx = useContext(InfiniteCanvasContext);
+  const storeRef = useRef(typeof ctx.getState === 'function' ? ctx.getState() : ctx);
+  storeRef.current = typeof ctx.getState === 'function' ? ctx.getState() : ctx;
+
+  const [hovering, setHovering] = useState(null);
 
   const handleReconnect = useCallback((anchorType, e, src, tgt) => {
     e.stopPropagation();
     e.preventDefault();
 
-    const wrap = store.wrapRef.current;
+    const s = storeRef.current;
+    const wrap = s.wrapRef.current;
     if (!wrap) return;
 
     const fixedEnd = anchorType === 'source' ? tgt : src;
     const fixedNodeId = anchorType === 'source' ? edge.target : edge.source;
 
-    // Show connecting line from fixed end
-    store.workerRef.current?.postMessage({
+    s.workerRef.current?.postMessage({
       type: 'connecting',
       data: { from: { x: fixedEnd.x, y: fixedEnd.y }, to: { x: fixedEnd.x, y: fixedEnd.y } },
     });
@@ -102,31 +106,29 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
     const rect = wrap.getBoundingClientRect();
 
     const onMove = (ev) => {
-      const cam = store.cameraRef.current;
+      const cam = s.cameraRef.current;
       const wx = (ev.clientX - rect.left - cam.x) / cam.zoom;
       const wy = (ev.clientY - rect.top - cam.y) / cam.zoom;
-      store.workerRef.current?.postMessage({
+      s.workerRef.current?.postMessage({
         type: 'connecting',
         data: { from: { x: fixedEnd.x, y: fixedEnd.y }, to: { x: wx, y: wy } },
       });
     };
 
     const onUp = (ev) => {
-      const cam = store.cameraRef.current;
+      const cam = s.cameraRef.current;
       const wx = (ev.clientX - rect.left - cam.x) / cam.zoom;
       const wy = (ev.clientY - rect.top - cam.y) / cam.zoom;
 
-      // Find target handle at drop position
       const hitRadius = 20 / cam.zoom;
       let targetNode = null;
       let targetHandleId = null;
-      const registry = store.handleRegistryRef?.current;
-      for (const n of store.nodesRef.current) {
+      const registry = s.handleRegistryRef?.current;
+      for (const n of s.nodesRef.current) {
         if (n.hidden) continue;
         const tnw = n.width || DEFAULT_NODE_WIDTH;
         const tnh = n.height || DEFAULT_NODE_HEIGHT;
         const tp = n._absolutePosition || n.position;
-        // Build handle list: prefer registry, then node.handles, then defaults
         const registeredHandles = [];
         if (registry) {
           for (const [, h] of registry) {
@@ -159,47 +161,45 @@ function EdgeWrapper({ edge, edgeType: EdgeComponent, nodes, reconnectable }) {
       }
 
       if (targetNode) {
-        // Build new connection
         const newConn = anchorType === 'source'
           ? { source: targetNode.id, target: fixedNodeId, sourceHandle: targetHandleId, targetHandle: edge.targetHandle }
           : { source: fixedNodeId, target: targetNode.id, sourceHandle: edge.sourceHandle, targetHandle: targetHandleId };
 
-        // Remove old edge and add new one
-        store.onEdgesChangeRef.current?.([
+        s.onEdgesChangeRef.current?.([
           { id: edge.id, type: 'remove' },
           { type: 'add', item: { id: edge.id, ...newConn } },
         ]);
       }
 
-      store.workerRef.current?.postMessage({ type: 'connecting', data: null });
+      s.workerRef.current?.postMessage({ type: 'connecting', data: null });
       wrap.removeEventListener('pointermove', onMove);
       wrap.removeEventListener('pointerup', onUp);
     };
 
     wrap.addEventListener('pointermove', onMove);
     wrap.addEventListener('pointerup', onUp);
-  }, [edge, store]);
+  }, [edge]);
 
+  // Look up only the two nodes this edge connects to
   const srcNode = nodes.find((n) => n.id === edge.source);
   const tgtNode = nodes.find((n) => n.id === edge.target);
 
-  // Check if nodes exist and have measured dimensions before resolving positions
   const srcReady = srcNode && !!(srcNode.width || srcNode.measured?.width);
   const tgtReady = tgtNode && !!(tgtNode.width || tgtNode.measured?.width);
 
-  const handleRegistry = store.handleRegistryRef?.current;
+  // Always prefer the mutable handle registry for latest positions
+  const s = storeRef.current;
+  const handleRegistry = s.handleRegistryRef?.current;
   const src = srcReady ? resolveHandlePosition(srcNode, 'source', edge.sourceHandle, handleRegistry) : null;
   const tgt = tgtReady ? resolveHandlePosition(tgtNode, 'target', edge.targetHandle, handleRegistry) : null;
 
-  // Use routed points from store if available (skip for bezier edges — they use stubs instead)
   const isBezier = edge.type === 'bezier' || edge.type === 'simplebezier' || edge.type === 'default';
-  const routedEdges = store.routedEdges || store.edges;
+  const routedEdges = s.routedEdges || s.edges;
   const routedEdge = routedEdges?.find((e) => e.id === edge.id);
   const routedPoints = isBezier ? null : (routedEdge?._routedPoints || edge._routedPoints || null);
 
   const isReconnectable = reconnectable !== false && edge.reconnectable !== false;
 
-  // Don't render until both nodes are initialized with positions
   if (!src || !tgt) return null;
 
   return (

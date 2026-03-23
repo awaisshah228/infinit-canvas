@@ -1,38 +1,18 @@
-import { useContext, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import { useContext, useCallback, useRef, useLayoutEffect, useEffect, memo } from 'react';
 import { NodeIdContext } from '../../context/NodeIdContext.js';
-import { useCanvasStore } from '../../context/InfiniteCanvasContext.js';
+import InfiniteCanvasContext from '../../context/InfiniteCanvasContext.js';
 
-// Flush handle bounds for a node: collect from registry, update React state + worker
-function flushHandleBounds(store, nodeId) {
-  const registry = store.handleRegistryRef?.current;
-  if (!registry) return;
-  const handleBounds = { source: [], target: [] };
-  for (const [, h] of registry) {
-    if (h.nodeId === nodeId) {
-      const entry = { id: h.id, type: h.type, position: h.position, x: h.x, y: h.y, width: 8, height: 8 };
-      if (h.type === 'source') handleBounds.source.push(entry);
-      else handleBounds.target.push(entry);
-    }
+// ── Helpers ─────────────────────────────────────────────────────
+function getPositionOffset(position, nw, nh) {
+  switch (position) {
+    case 'top': return { x: nw / 2, y: 0 };
+    case 'bottom': return { x: nw / 2, y: nh };
+    case 'left': return { x: 0, y: nh / 2 };
+    case 'right': return { x: nw, y: nh / 2 };
+    default: return { x: nw, y: nh / 2 };
   }
-  store.onNodesChangeRef.current?.([
-    { id: nodeId, type: 'dimensions', handleBounds, setAttributes: false },
-  ]);
-  store.syncNodesToWorker?.();
 }
 
-// Debounce handle bounds updates per-node — many handles mount at once
-const pendingNodeUpdates = new Set();
-function scheduleHandleBoundsUpdate(store, nodeId) {
-  if (pendingNodeUpdates.has(nodeId)) return;
-  pendingNodeUpdates.add(nodeId);
-  queueMicrotask(() => {
-    pendingNodeUpdates.delete(nodeId);
-    flushHandleBounds(store, nodeId);
-  });
-}
-
-// Measure handle's offset (x, y) relative to the node wrapper element
-// Returns world-space offsets (divided by zoom since getBoundingClientRect is in screen pixels)
 function measureHandleOffset(handleEl, zoom) {
   const nodeWrapper = handleEl.closest('.ric-node-wrapper');
   if (!nodeWrapper) return null;
@@ -45,7 +25,53 @@ function measureHandleOffset(handleEl, zoom) {
   };
 }
 
-export default function Handle({
+// ── Batched worker sync ─────────────────────────────────────────
+// Coalesce all handle changes into a single worker sync per frame
+let syncScheduled = false;
+let syncStore = null;
+
+function scheduleSyncToWorker(store) {
+  syncStore = store;
+  if (syncScheduled) return;
+  syncScheduled = true;
+  requestAnimationFrame(() => {
+    syncScheduled = false;
+    syncStore?.syncNodesToWorker?.();
+    syncStore = null;
+  });
+}
+
+// ── Shared ResizeObserver ───────────────────────────────────────
+const observedWrappers = new WeakMap();
+let sharedRO = null;
+
+function getSharedResizeObserver() {
+  if (sharedRO) return sharedRO;
+  sharedRO = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const info = observedWrappers.get(entry.target);
+      if (!info) continue;
+      const { width, height } = entry.contentRect;
+      if (!width || !height) continue;
+      const s = info.getStore();
+      const registry = s.handleRegistryRef?.current;
+      if (!registry) continue;
+      for (const [key, h] of registry) {
+        if (h.nodeId === info.nodeId) {
+          const offset = getPositionOffset(h.position, width, height);
+          h.x = offset.x;
+          h.y = offset.y;
+          registry.set(key, h);
+        }
+      }
+      scheduleSyncToWorker(s);
+    }
+  });
+  return sharedRO;
+}
+
+// ── Handle Component ────────────────────────────────────────────
+function Handle({
   type = 'source',
   position = type === 'source' ? 'right' : 'left',
   id,
@@ -59,75 +85,74 @@ export default function Handle({
   ...rest
 }) {
   const nodeId = useContext(NodeIdContext);
-  const store = useCanvasStore();
+  const ctx = useContext(InfiniteCanvasContext);
   const handleRef = useRef(null);
-  // Keep store in a ref so measure/effects don't re-run when store object is recreated
-  const storeRef = useRef(store);
-  storeRef.current = store;
+  const getStore = useCallback(
+    () => (typeof ctx.getState === 'function' ? ctx.getState() : ctx),
+    [ctx]
+  );
+  const getStoreRef = useRef(getStore);
+  getStoreRef.current = getStore;
 
-  // Measure and register handle position into the store registry
-  const measure = useCallback(() => {
-    const el = handleRef.current;
-    if (!el || !nodeId) return;
-    const s = storeRef.current;
+  // Register handle position in registry
+  useLayoutEffect(() => {
+    if (!nodeId) return;
+    const s = getStoreRef.current();
     const registry = s.handleRegistryRef?.current;
     if (!registry) return;
+
     const key = `${nodeId}__${id || type}`;
-    const zoom = s.cameraRef?.current?.zoom;
-    const offset = measureHandleOffset(el, zoom);
-    if (offset) {
-      const handleData = { nodeId, id: id || null, type, position, x: offset.x, y: offset.y };
-      registry.set(key, handleData);
+    const node = s.nodesRef?.current?.find((n) => n.id === nodeId);
+    const nw = node?.width || node?.measured?.width;
+    const nh = node?.height || node?.measured?.height;
+
+    let offset;
+    if (nw && nh) {
+      offset = getPositionOffset(position, nw, nh);
+    } else if (handleRef.current) {
+      offset = measureHandleOffset(handleRef.current, s.cameraRef?.current?.zoom);
+    } else {
+      offset = getPositionOffset(position, 160, 60);
     }
+
+    registry.set(key, { nodeId, id: id || null, type, position, x: offset.x, y: offset.y });
   }, [nodeId, id, type, position]);
 
-  // Measure synchronously after DOM commit so registry is populated
-  // before the parent nodes effect sends data to the worker
-  useLayoutEffect(() => {
-    measure();
-  }, [measure]);
-
-  // Flush bounds + sync to worker after all handles in this render batch have measured
+  // Register shared ResizeObserver + schedule initial sync
   useEffect(() => {
     if (!nodeId) return;
-    const s = storeRef.current;
-    scheduleHandleBoundsUpdate(s, nodeId);
+    const s = getStoreRef.current();
+    scheduleSyncToWorker(s);
 
-    // Re-measure on resize
     const el = handleRef.current;
     const nodeWrapper = el?.closest('.ric-node-wrapper');
-    const ro = new ResizeObserver(() => {
-      measure();
-      scheduleHandleBoundsUpdate(storeRef.current, nodeId);
-    });
-    if (nodeWrapper) ro.observe(nodeWrapper);
+    if (nodeWrapper && !observedWrappers.has(nodeWrapper)) {
+      observedWrappers.set(nodeWrapper, { nodeId, getStore: getStoreRef.current });
+      getSharedResizeObserver().observe(nodeWrapper);
+    }
 
     return () => {
-      ro.disconnect();
-      const st = storeRef.current;
+      // Cleanup: just remove from registry. Don't call onNodesChange or syncNodesToWorker
+      // synchronously — that causes hangs when many handles unmount at once (virtualization).
+      // The registry cleanup is enough; positions will be recalculated when nodes re-enter viewport.
+      const st = getStoreRef.current();
       const registry = st.handleRegistryRef?.current;
       const key = `${nodeId}__${id || type}`;
       registry?.delete(key);
-      flushHandleBounds(st, nodeId);
     };
-  }, [nodeId, id, type, position, measure]);
+  }, [nodeId, id, type, position]);
 
-  // Get this handle's world position using measured offset or fallback
   const getHandleWorldPos = useCallback(() => {
-    const s = storeRef.current;
+    const s = getStoreRef.current();
     const node = s.nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return null;
     const nodePos = node._absolutePosition || node.position;
-
-    // Try measured position from registry
     const registry = s.handleRegistryRef?.current;
     const key = `${nodeId}__${id || type}`;
     const registered = registry?.get(key);
     if (registered && registered.x !== undefined && registered.y !== undefined) {
       return { x: nodePos.x + registered.x, y: nodePos.y + registered.y };
     }
-
-    // Fallback to position-based calculation
     const nw = node.width || 160;
     const nh = node.height || 60;
     switch (position) {
@@ -138,29 +163,25 @@ export default function Handle({
     }
   }, [nodeId, id, type, position]);
 
-  // Handle pointer down — start connection drag
   const onPointerDown = useCallback((e) => {
     if (!isConnectable || !isConnectableStart) return;
-    e.stopPropagation(); // Don't trigger node drag
+    e.stopPropagation();
     e.preventDefault();
 
-    const s = storeRef.current;
+    const s = getStoreRef.current();
     const cam = s.cameraRef.current;
     const wrap = s.wrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
-
     const handlePos = getHandleWorldPos();
     if (!handlePos) return;
     const hx = handlePos.x;
     const hy = handlePos.y;
 
-    // Send connecting state to worker
     s.workerRef.current?.postMessage({
       type: 'connecting',
       data: { from: { x: hx, y: hy }, to: { x: hx, y: hy } },
     });
-
     wrap.setPointerCapture(e.pointerId);
 
     const onMove = (ev) => {
@@ -173,21 +194,15 @@ export default function Handle({
     };
 
     const onUp = (ev) => {
-      // Check if we landed on another handle
       const wx = (ev.clientX - rect.left - cam.x) / cam.zoom;
       const wy = (ev.clientY - rect.top - cam.y) / cam.zoom;
-
-      // Find target handle at drop position
       const hitRadius = 20 / cam.zoom;
       let targetNode = null;
       let targetHandleId = null;
       const registry = s.handleRegistryRef?.current;
       for (const n of s.nodesRef.current) {
         if (n.id === nodeId || n.hidden) continue;
-        const tnw = n.width || 160;
-        const tnh = n.height || 60;
         const tp = n._absolutePosition || n.position;
-        // Build handle list: use registry entries for this node, fall back to node.handles or defaults
         const registeredHandles = [];
         if (registry) {
           for (const [, h] of registry) {
@@ -203,6 +218,8 @@ export default function Handle({
           if (h.x !== undefined && h.y !== undefined) {
             thx = tp.x + h.x; thy = tp.y + h.y;
           } else {
+            const tnw = n.width || 160;
+            const tnh = n.height || 60;
             switch (h.position || (h.type === 'source' ? 'right' : 'left')) {
               case 'top': thx = tp.x + tnw / 2; thy = tp.y; break;
               case 'bottom': thx = tp.x + tnw / 2; thy = tp.y + tnh; break;
@@ -218,7 +235,6 @@ export default function Handle({
         }
         if (targetNode) break;
       }
-
       if (targetNode) {
         const conn = {
           source: type === 'source' ? nodeId : targetNode.id,
@@ -226,10 +242,8 @@ export default function Handle({
           sourceHandle: type === 'source' ? (id || null) : targetHandleId,
           targetHandle: type === 'source' ? targetHandleId : (id || null),
         };
-        // Use the store's onConnect (via the refs)
         s.onEdgesChangeRef?.current?.([{ type: 'add', item: { id: `e-${conn.source}-${conn.target}`, ...conn } }]);
       }
-
       s.workerRef.current?.postMessage({ type: 'connecting', data: null });
       wrap.removeEventListener('pointermove', onMove);
       wrap.removeEventListener('pointerup', onUp);
@@ -274,3 +288,5 @@ export default function Handle({
     </div>
   );
 }
+
+export default memo(Handle);

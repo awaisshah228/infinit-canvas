@@ -131,7 +131,7 @@ export default function InfiniteCanvas({
   // Compute which nodes/edges have React renderers
   // Nodes/edges WITHOUT a type stay canvas-rendered (worker handles them)
   const customNodes = useMemo(() => {
-    const filtered = nodes.filter((n) => n.type && customNodeTypes[n.type]);
+    const filtered = measuredNodes.filter((n) => n.type && customNodeTypes[n.type]);
     // Sort: parent/group nodes first (lower z-index) so children render on top
     return filtered.sort((a, b) => {
       const aIsGroup = a.type === 'group' || (!a.parentId && filtered.some((n) => n.parentId === a.id));
@@ -140,7 +140,7 @@ export default function InfiniteCanvas({
       if (!aIsGroup && bIsGroup) return 1;
       return 0;
     });
-  }, [nodes, customNodeTypes]);
+  }, [measuredNodes, customNodeTypes]);
 
   const customEdges = useMemo(() => {
     return edges.filter((e) => e.type && customEdgeTypes[e.type]);
@@ -249,7 +249,10 @@ export default function InfiniteCanvas({
   const edgeLabelOverlayRef = useRef(null);
   const viewportPortalOverlayRef = useRef(null);
 
-  // Sync overlay transforms directly from cameraRef on every animation frame
+  // Sync overlay transforms directly from cameraRef on every animation frame.
+  // Also applies LOD CSS classes based on zoom level — hides handles at low zoom
+  // to reduce DOM complexity during pan/zoom with many custom nodes.
+  const lastZoomTierRef = useRef(null);
   useEffect(() => {
     let rafId;
     const sync = () => {
@@ -260,6 +263,16 @@ export default function InfiniteCanvas({
       if (edgesOverlayRef.current) edgesOverlayRef.current.setAttribute('transform', svg);
       if (edgeLabelOverlayRef.current) edgeLabelOverlayRef.current.style.transform = css;
       if (viewportPortalOverlayRef.current) viewportPortalOverlayRef.current.style.transform = css;
+      // LOD: toggle CSS class to hide handles and simplify nodes at low zoom
+      const wrap = wrapRef.current;
+      if (wrap) {
+        const tier = cam.zoom < 0.15 ? 'lod-minimal' : cam.zoom < 0.35 ? 'lod-reduced' : null;
+        if (tier !== lastZoomTierRef.current) {
+          wrap.classList.remove('lod-minimal', 'lod-reduced');
+          if (tier) wrap.classList.add(tier);
+          lastZoomTierRef.current = tier;
+        }
+      }
       rafId = requestAnimationFrame(sync);
     };
     rafId = requestAnimationFrame(sync);
