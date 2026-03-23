@@ -965,19 +965,23 @@ function render() {
 
   // ── Origin dot ────────────────────────────────────────────────
   ctx.beginPath();
-  ctx.arc(camera.x, camera.y, 4 * camera.zoom, 0, 6.2832);
+  ctx.arc(Math.round(camera.x), Math.round(camera.y), 4 * camera.zoom, 0, 6.2832);
   ctx.fillStyle = COLORS.origin;
   ctx.fill();
 
   // ── World-space transform ─────────────────────────────────────
+  // Snap camera translation to whole pixels to prevent sub-pixel anti-aliasing
+  // jitter on edges and node borders during pan/zoom.
+  var snappedCamX = Math.round(camera.x);
+  var snappedCamY = Math.round(camera.y);
   ctx.save();
-  ctx.translate(camera.x, camera.y);
+  ctx.translate(snappedCamX, snappedCamY);
   ctx.scale(camera.zoom, camera.zoom);
 
   // ── Frustum bounds (with padding for edges that extend beyond nodes) ──
   var edgePadding = 100; // extra world-space padding so edges near viewport aren't clipped
-  var worldLeft = -camera.x / camera.zoom;
-  var worldTop = -camera.y / camera.zoom;
+  var worldLeft = -snappedCamX / camera.zoom;
+  var worldTop = -snappedCamY / camera.zoom;
   var worldRight = worldLeft + W / camera.zoom;
   var worldBottom = worldTop + H / camera.zoom;
   var paddedLeft = worldLeft - edgePadding;
