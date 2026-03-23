@@ -141,6 +141,7 @@ export default function StressTestCustom() {
           {nodes.length} custom nodes ({hud.visibleNodes || '?'} visible) | {edges.length} edges | zoom: {hud.zoom}x
           {hud.renderMs ? ' | render: ' + hud.renderMs + 'ms' : ''}
           {hud.fps ? ' | fps: ' + hud.fps : ''}
+          &nbsp;| <span style={{ color: '#3b82f6' }}>Click a node to promote it to a React component</span>
         </span>
       </div>
       <div style={{ position: 'relative' }}>
