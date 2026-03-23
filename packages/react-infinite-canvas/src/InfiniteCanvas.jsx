@@ -128,10 +128,14 @@ export default function InfiniteCanvas({
   // Nodes with guaranteed `measured` dimensions for layout algorithms
   const measuredNodes = useMemo(() => ensureMeasured(nodes), [nodes]);
 
-  // Compute which nodes/edges have React renderers
-  // Nodes/edges WITHOUT a type stay canvas-rendered (worker handles them)
-  const customNodes = useMemo(() => {
-    const filtered = measuredNodes.filter((n) => n.type && customNodeTypes[n.type]);
+  // Hybrid rendering: all nodes live on canvas by default (worker draws them
+  // as simple boxes). Only "promoted" nodes (selected/dragging) get the full
+  // React component treatment in the DOM overlay. This keeps DOM node count
+  // near-zero for thousands of nodes while still providing rich interaction.
+  const promotedNodes = useMemo(() => {
+    const filtered = measuredNodes.filter(
+      (n) => n.type && customNodeTypes[n.type] && (n.selected || n.dragging)
+    );
     // Sort: parent/group nodes first (lower z-index) so children render on top
     return filtered.sort((a, b) => {
       const aIsGroup = a.type === 'group' || (!a.parentId && filtered.some((n) => n.parentId === a.id));
@@ -146,11 +150,11 @@ export default function InfiniteCanvas({
     return edges.filter((e) => e.type && customEdgeTypes[e.type]);
   }, [edges, customEdgeTypes]);
 
-  // Mark React-rendered nodes/edges so worker skips rendering them
-  // but still knows their positions for edge resolution
+  // Only promoted (selected/dragging) nodes get _customRendered so the worker
+  // skips them. All other nodes — including custom-typed ones — render on canvas.
   const workerNodes = useMemo(() => {
     return nodes.map((n) => {
-      if (n.type && customNodeTypes[n.type]) {
+      if (n.type && customNodeTypes[n.type] && (n.selected || n.dragging)) {
         return { ...n, _customRendered: true };
       }
       return n;
@@ -282,7 +286,7 @@ export default function InfiniteCanvas({
   // ── Node virtualization: only mount nodes visible in viewport ──
   const [visibleNodeIds, setVisibleNodeIds] = useState(null); // null = show all (before first cull)
   useEffect(() => {
-    if (!customNodes.length) return;
+    if (!promotedNodes.length) return;
     let rafId;
     const cull = () => {
       const cam = baseStore.cameraRef.current;
@@ -297,7 +301,7 @@ export default function InfiniteCanvas({
       const vBottom = (rect.height - cam.y) / cam.zoom + margin;
 
       const ids = new Set();
-      for (const node of customNodes) {
+      for (const node of promotedNodes) {
         const pos = node._absolutePosition || node.position;
         const w = node.width || node.measured?.width || 200;
         const h = node.height || node.measured?.height || 100;
@@ -314,14 +318,14 @@ export default function InfiniteCanvas({
     };
     rafId = requestAnimationFrame(cull);
     return () => cancelAnimationFrame(rafId);
-  }, [customNodes, baseStore]);
+  }, [promotedNodes, baseStore]);
 
   const virtualizedNodes = useMemo(() => {
-    if (!visibleNodeIds) return customNodes; // show all until first cull
-    return customNodes.filter((n) => visibleNodeIds.has(n.id));
-  }, [customNodes, visibleNodeIds]);
+    if (!visibleNodeIds) return promotedNodes; // show all until first cull
+    return promotedNodes.filter((n) => visibleNodeIds.has(n.id));
+  }, [promotedNodes, visibleNodeIds]);
 
-  const hasCustomNodes = customNodes.length > 0;
+  const hasCustomNodes = promotedNodes.length > 0;
   const hasCustomEdges = customEdges.length > 0;
 
   return (
