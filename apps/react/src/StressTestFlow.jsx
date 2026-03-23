@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { InfiniteCanvas, useNodesState, useEdgesState, addEdge } from '@infinit-canvas/react';
+import { InfiniteCanvas, useNodesState, useEdgesState, addEdge, MiniMap, Controls, Background } from '@infinit-canvas/react';
 import '@infinit-canvas/react/styles.css';
 
 const COLS = 20;
@@ -160,7 +160,11 @@ export default function StressTestFlow() {
           edgeRouting={nodes.length < 5000}
           onHudUpdate={onHudUpdate}
           onNodesProcessed={onNodesProcessed}
-        />
+        >
+          <MiniMap />
+          <Controls />
+          <Background variant="dots" />
+        </InfiniteCanvas>
         {loading && (
           <div style={overlayStyle}>
             <div style={spinnerStyle} />
