@@ -77,12 +77,14 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     // Collect selected nodes for multi-drag
     // Important: use the INTENDED selection state, not the stale ref
     // (React state update from selection changes hasn't applied yet)
-    const isMultiDrag = e.shiftKey && node.selected;
+    // Multi-drag when the clicked node is already selected (drag all selected together).
+    // Works for both Shift+drag and clicking an already-selected node (e.g. after Ctrl+A).
+    const isMultiDrag = node.selected;
     const selectedStarts = isMultiDrag
       ? store.nodesRef.current
           .filter((n) => n.selected && n.id !== node.id)
           .map((n) => ({ id: n.id, startPos: { ...n.position } }))
-      : []; // Single click = only drag this node, no others
+      : [];
 
     dragRef.current = {
       startPos: { ...node.position },

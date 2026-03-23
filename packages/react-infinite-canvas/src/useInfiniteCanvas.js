@@ -650,9 +650,9 @@ export default function useInfiniteCanvas({
         // Start drag (drag all selected if this node is selected)
         // Skip drag if the clicked element has the noDragClassName
         if (nodesDraggable && !hasNoDragClass(e.target)) {
-          // Only multi-drag when Shift is held AND node was already selected
-          // (nodesRef is stale after onNodesChange — can't trust .selected on other nodes)
-          const isMultiDrag = isMulti && node.selected;
+          // Multi-drag when the clicked node is already selected (other selected nodes move too).
+          // This handles both Shift+drag AND clicking an already-selected node after Ctrl+A.
+          const isMultiDrag = node.selected;
           // Pre-compute parent clamp bounds for child nodes with extent='parent'
           let parentClamp = null;
           if (node.parentId && node.extent === 'parent') {
