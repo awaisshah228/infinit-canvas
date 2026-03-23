@@ -209,55 +209,104 @@ export default function InfiniteCanvas({
     edgeRouting,
   });
 
-  // Convert canvasNodeTypes (SVG strings, images, etc.) to ImageBitmaps and send to worker.
-  // Worker uses these to drawImage() instead of drawing default boxes for typed nodes.
+  // Convert canvasNodeTypes to ImageBitmaps and send to worker.
+  // Supports static values (string, Image, Canvas, ImageBitmap) and
+  // functions (data) => svgString for per-node bitmaps with caching.
+  const sentBitmapHashesRef = useRef(new Set());
   useEffect(() => {
     if (!canvasNodeTypes || !baseStore.workerRef.current) return;
     let cancelled = false;
 
-    async function convertAndSend() {
-      const bitmaps = {};
-      const transferList = [];
+    async function svgStringToBitmap(svgStr) {
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      URL.revokeObjectURL(url);
+      return createImageBitmap(img);
+    }
 
+    async function convertAndSend() {
+      const staticBitmaps = {};
+      const staticTransfer = [];
+      const fnTypes = {}; // type → function
+
+      // Separate static vs function entries
       for (const [type, src] of Object.entries(canvasNodeTypes)) {
+        if (typeof src === 'function') {
+          fnTypes[type] = src;
+          continue;
+        }
         try {
           let bitmap;
-          if (src instanceof ImageBitmap) {
-            bitmap = src;
-          } else if (typeof src === 'string') {
-            // SVG string → ImageBitmap
-            const blob = new Blob([src], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(blob);
-            const img = new Image();
-            img.src = url;
-            await img.decode();
-            URL.revokeObjectURL(url);
-            bitmap = await createImageBitmap(img);
-          } else if (src instanceof HTMLImageElement) {
-            bitmap = await createImageBitmap(src);
-          } else if (src instanceof HTMLCanvasElement) {
-            bitmap = await createImageBitmap(src);
-          }
+          if (src instanceof ImageBitmap) bitmap = src;
+          else if (typeof src === 'string') bitmap = await svgStringToBitmap(src);
+          else if (src instanceof HTMLImageElement) bitmap = await createImageBitmap(src);
+          else if (src instanceof HTMLCanvasElement) bitmap = await createImageBitmap(src);
           if (bitmap && !cancelled) {
-            bitmaps[type] = bitmap;
-            transferList.push(bitmap);
+            staticBitmaps[type] = bitmap;
+            staticTransfer.push(bitmap);
           }
         } catch (e) {
           console.warn(`[InfiniteCanvas] Failed to convert canvasNodeType "${type}":`, e);
         }
       }
 
-      if (!cancelled && Object.keys(bitmaps).length > 0) {
+      // Send static per-type bitmaps
+      if (!cancelled && Object.keys(staticBitmaps).length > 0) {
         baseStore.workerRef.current?.postMessage(
-          { type: 'nodeTypeBitmaps', data: { bitmaps } },
-          transferList
+          { type: 'nodeTypeBitmaps', data: { bitmaps: staticBitmaps } },
+          staticTransfer
         );
+      }
+
+      // Process function types: generate per-node bitmaps, deduplicated by SVG content
+      if (!cancelled && Object.keys(fnTypes).length > 0) {
+        const svgMap = new Map(); // svgString → hash
+        const newCache = {};     // hash → ImageBitmap (only new ones)
+        const keys = {};         // nodeId → hash
+        const transfer = [];
+        let hashCounter = sentBitmapHashesRef.current.size;
+
+        for (const node of nodes) {
+          const fn = fnTypes[node.type];
+          if (!fn) continue;
+          try {
+            const svgStr = fn(node.data);
+            if (!svgStr) continue;
+
+            let hash = svgMap.get(svgStr);
+            if (!hash) {
+              hash = 'bmp_' + hashCounter++;
+              svgMap.set(svgStr, hash);
+              // Only create bitmap if we haven't sent this exact SVG before
+              if (!sentBitmapHashesRef.current.has(svgStr)) {
+                const bitmap = await svgStringToBitmap(svgStr);
+                if (cancelled) return;
+                newCache[hash] = bitmap;
+                transfer.push(bitmap);
+                sentBitmapHashesRef.current.add(svgStr);
+              }
+            }
+            keys[node.id] = hash;
+          } catch (e) {
+            console.warn(`[InfiniteCanvas] canvasNodeType fn error for node "${node.id}":`, e);
+          }
+        }
+
+        if (!cancelled) {
+          baseStore.workerRef.current?.postMessage(
+            { type: 'nodeBitmaps', data: { cache: newCache, keys } },
+            transfer
+          );
+        }
       }
     }
 
     convertAndSend();
     return () => { cancelled = true; };
-  }, [canvasNodeTypes, baseStore.workerRef]);
+  }, [canvasNodeTypes, nodes, baseStore.workerRef]);
 
   // If a parent InfiniteCanvasProvider exists (Zustand store), sync data into it
   // so hooks called above <InfiniteCanvas> (e.g. useAutoLayout, useReactFlow) see current data.

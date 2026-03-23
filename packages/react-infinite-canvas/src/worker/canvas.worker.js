@@ -25,6 +25,9 @@ var selectionBox = null; // { startWorld: {x,y}, endWorld: {x,y} }
 // Custom node type bitmaps: { [type]: ImageBitmap }
 // When a node has a type matching a key here, drawImage is used instead of default box.
 var nodeTypeBitmaps = {};
+// Per-node bitmaps (from function canvasNodeTypes): keyed by content hash
+var nodeBitmapCache = {}; // { [hash]: ImageBitmap }
+var nodeBitmapKeys = {};  // { [nodeId]: hash }
 
 // Default node dimensions
 var DEFAULT_NODE_WIDTH = 160;
@@ -511,8 +514,16 @@ self.onmessage = function(e) {
         break;
 
       case 'nodeTypeBitmaps':
-        // Receive ImageBitmaps for custom node types
+        // Receive ImageBitmaps for custom node types (static per-type)
         nodeTypeBitmaps = data.bitmaps || {};
+        scheduleRender();
+        break;
+
+      case 'nodeBitmaps':
+        // Receive per-node bitmaps (from function canvasNodeTypes)
+        // data: { cache: { [hash]: ImageBitmap }, keys: { [nodeId]: hash } }
+        nodeBitmapCache = data.cache || {};
+        nodeBitmapKeys = data.keys || {};
         scheduleRender();
         break;
 
@@ -1506,14 +1517,14 @@ function render() {
     var showHandles = camera.zoom > 0.2 && visNodeCount < 300;
 
     // Split nodes into bitmap-rendered and default-rendered
-    var hasBitmaps = Object.keys(nodeTypeBitmaps).length > 0;
+    var hasBitmaps = Object.keys(nodeTypeBitmaps).length > 0 || Object.keys(nodeBitmapKeys).length > 0;
     var defaultNodes = visibleNodes;
     var bitmapNodes = [];
     if (hasBitmaps) {
       defaultNodes = [];
       for (var sni = 0; sni < visNodeCount; sni++) {
         var sn = visibleNodes[sni];
-        if (sn.type && nodeTypeBitmaps[sn.type]) {
+        if (nodeBitmapKeys[sn.id] || (sn.type && nodeTypeBitmaps[sn.type])) {
           bitmapNodes.push(sn);
         } else {
           defaultNodes.push(sn);
@@ -1591,14 +1602,26 @@ function render() {
       ctx.textBaseline = 'alphabetic';
     }
 
-    // PASS B: Bitmap nodes — drawImage for each node with a matching bitmap
+    // PASS B: Bitmap nodes — drawImage + text label overlay
     for (var bni = 0; bni < bitmapNodes.length; bni++) {
       var bn = bitmapNodes[bni];
       var bnPos = getNodePos(bn);
       var bnW = bn.width || DEFAULT_NODE_WIDTH;
       var bnH = bn.height || DEFAULT_NODE_HEIGHT;
-      var bitmap = nodeTypeBitmaps[bn.type];
-      ctx.drawImage(bitmap, bnPos.x, bnPos.y, bnW, bnH);
+      // Per-node bitmap (from function canvasNodeTypes) takes priority over per-type
+      var bitmap = (nodeBitmapKeys[bn.id] && nodeBitmapCache[nodeBitmapKeys[bn.id]])
+        || nodeTypeBitmaps[bn.type];
+      if (bitmap) {
+        ctx.drawImage(bitmap, bnPos.x, bnPos.y, bnW, bnH);
+      }
+      // Draw text label on top of bitmap (Option A: layered approach)
+      if (showNodeText && bn.data && bn.data.label) {
+        ctx.fillStyle = COLORS.nodeText;
+        ctx.font = FONT_NODE;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(bn.data.label, bnPos.x + bnW / 2, bnPos.y + bnH / 2, bnW - 24);
+      }
       // Draw selection border on top of bitmap
       if (bn.selected) {
         ctx.strokeStyle = COLORS.nodeSelectedBorder;
@@ -1607,6 +1630,11 @@ function render() {
         ctx.roundRect(bnPos.x, bnPos.y, bnW, bnH, NODE_RADIUS);
         ctx.stroke();
       }
+    }
+    // Reset text alignment after bitmap pass
+    if (bitmapNodes.length > 0 && showNodeText) {
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
     }
 
     // PASS 5: Handles (batched — fill all, then stroke all) — for ALL nodes
