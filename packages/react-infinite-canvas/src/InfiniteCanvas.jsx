@@ -254,12 +254,19 @@ export default function InfiniteCanvas({
   });
 
   // ── Spatial DOM promotion: fill remaining domNodeLimit slots with nearest visible nodes ──
-  // Throttled to every 500ms to avoid crushing perf with 5000+ nodes.
-  // During pan/zoom, the canvas worker handles rendering — DOM promotion can lag behind.
+  // Throttled to every 500ms. Uses refs to avoid re-running the effect on every render.
+  const allCustomNodesRef = useRef(allCustomNodes);
+  allCustomNodesRef.current = allCustomNodes;
+  const domNodeLimitRef = useRef(domNodeLimit);
+  domNodeLimitRef.current = domNodeLimit;
+
   useEffect(() => {
-    if (domNodeLimit === 0 || !allCustomNodes.length) return;
     let timer;
     const update = () => {
+      const customNodes = allCustomNodesRef.current;
+      const limit = domNodeLimitRef.current;
+      if (limit === 0 || !customNodes.length) return;
+
       const cam = baseStore.cameraRef.current;
       const wrap = baseStore.wrapRef.current;
       if (!wrap) return;
@@ -267,33 +274,31 @@ export default function InfiniteCanvas({
       const wh = wrap.clientHeight;
       const cx = (-cam.x + ww / 2) / cam.zoom;
       const cy = (-cam.y + wh / 2) / cam.zoom;
+      const pinned = pinnedRef.current;
 
       // Count slots already taken by pinned + selected
-      let taken = pinnedNodeIds.size;
-      for (const n of allCustomNodes) {
+      let taken = pinned.size;
+      for (const n of customNodes) {
         if (n.selected || n.dragging) taken++;
       }
-      const remaining = Math.max(0, domNodeLimit - taken);
+      const remaining = Math.max(0, limit - taken);
 
       if (remaining === 0) {
         setSpatialIds((prev) => prev.size === 0 ? prev : new Set());
       } else {
-        const takenIds = new Set(pinnedNodeIds);
-        for (const n of allCustomNodes) {
+        const takenIds = new Set(pinned);
+        for (const n of customNodes) {
           if (n.selected || n.dragging) takenIds.add(n.id);
         }
-        // Only sort the top N candidates — avoid full sort of 5000 nodes.
-        // Use a partial selection: score all, then pick smallest N.
         const scored = [];
-        for (let i = 0; i < allCustomNodes.length; i++) {
-          const n = allCustomNodes[i];
+        for (let i = 0; i < customNodes.length; i++) {
+          const n = customNodes[i];
           if (takenIds.has(n.id)) continue;
           const pos = n._absolutePosition || n.position;
           const dx = pos.x + (n.width || 160) / 2 - cx;
           const dy = pos.y + (n.height || 60) / 2 - cy;
           scored.push({ id: n.id, dist: dx * dx + dy * dy });
         }
-        // Partial sort: only need top `remaining` items
         scored.sort((a, b) => a.dist - b.dist);
 
         const ids = new Set();
@@ -307,11 +312,11 @@ export default function InfiniteCanvas({
         });
       }
     };
-    // Run once immediately, then throttle
-    update();
+    // Run once after mount, then every 500ms
+    const initialTimer = setTimeout(update, 100);
     timer = setInterval(update, 500);
-    return () => clearInterval(timer);
-  }, [allCustomNodes, pinnedNodeIds, domNodeLimit, baseStore]);
+    return () => { clearTimeout(initialTimer); clearInterval(timer); };
+  }, [baseStore.cameraRef, baseStore.wrapRef]); // stable refs only — no re-run loop
 
   // Convert canvasNodeTypes to ImageBitmaps and send to worker.
   // Supports static values (string, Image, Canvas, ImageBitmap) and
