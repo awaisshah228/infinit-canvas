@@ -1,8 +1,13 @@
 # react-infinite-canvas
 
+[![npm version](https://img.shields.io/npm/v/@infinit-canvas/react.svg)](https://www.npmjs.com/package/@infinit-canvas/react)
+[![license](https://img.shields.io/npm/l/@infinit-canvas/react.svg)](https://github.com/awaisshah228/infinit-canvas/blob/main/LICENSE)
+
 A high-performance infinite canvas React component powered by **OffscreenCanvas + Web Workers**. Provides a React Flow-compatible API for nodes, edges, and interactions -- but renders everything on a canvas for 10x better performance at scale.
 
 **5000+ nodes at 60fps** vs React Flow's ~500 before lag.
+
+**npm:** [https://www.npmjs.com/package/@infinit-canvas/react](https://www.npmjs.com/package/@infinit-canvas/react)
 
 ## Install
 
