@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm install --legacy-peer-deps",
+  "installCommand": "yarn install",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
