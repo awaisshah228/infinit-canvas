@@ -4,6 +4,9 @@ dist/
 *.log
 .DS_Store
 
+# Pro examples (xyflow reference, not ours)
+packages/react-infinite-canvas/examples/
+
 # Local reference copies
 excalidraw/
 xyflow/
