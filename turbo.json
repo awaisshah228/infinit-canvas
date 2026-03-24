@@ -6,7 +6,8 @@
       "persistent": true
     },
     "build": {
-      "outputs": ["dist/**"]
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     }
   }
 }
