@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull:*)",
+      "Bash(node -e \"console.log\\(require\\(''./package.json''\\).version\\)\")"
+    ]
+  }
+}

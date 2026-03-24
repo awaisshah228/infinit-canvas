@@ -1,8 +1,8 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   InfiniteCanvas, useNodesState, useEdgesState,
-  Controls, Background, Handle, Panel,
+  useReactFlow, Background, Panel,
 } from '@infinit-canvas/react';
 import '@infinit-canvas/react/styles.css';
 
@@ -46,11 +46,44 @@ const initialNodes = slides.map((s, i) => ({
   draggable: false,
 }));
 
+function SlideNavigator({ current, onGoTo }) {
+  const { fitView } = useReactFlow();
+
+  useEffect(() => {
+    fitView({ padding: 0.3, duration: 500, nodes: [{ id: `slide-${current}` }] });
+  }, [current, fitView]);
+
+  return (
+    <Panel position="bottom-center">
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        background: '#fff', border: '1px solid #ddd', borderRadius: 8,
+        padding: '6px 16px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+      }}>
+        <button
+          onClick={() => onGoTo(current - 1)}
+          disabled={current === 0}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, opacity: current === 0 ? 0.3 : 1 }}
+        >
+          ←
+        </button>
+        <span>{current + 1} / {slides.length}</span>
+        <button
+          onClick={() => onGoTo(current + 1)}
+          disabled={current === slides.length - 1}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, opacity: current === slides.length - 1 ? 0.3 : 1 }}
+        >
+          →
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
 export default function SlideshowExample() {
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState([]);
   const [current, setCurrent] = useState(0);
-  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
 
   const goTo = useCallback((index) => {
     if (index < 0 || index >= slides.length) return;
@@ -63,8 +96,9 @@ export default function SlideshowExample() {
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      nodeTypes={nodeTypes}
       fitView
-      fitViewOptions={{ padding: 0.3, nodes: [{ id: `slide-${current}` }] }}
+      fitViewOptions={{ padding: 0.3 }}
       zoomOnScroll={false}
       panOnScroll={false}
       nodesDraggable={false}
@@ -73,29 +107,7 @@ export default function SlideshowExample() {
       height="380px"
     >
       <Background variant="dots" />
-      <Panel position="bottom-center">
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          background: '#fff', border: '1px solid #ddd', borderRadius: 8,
-          padding: '6px 16px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        }}>
-          <button
-            onClick={() => goTo(current - 1)}
-            disabled={current === 0}
-            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, opacity: current === 0 ? 0.3 : 1 }}
-          >
-            ←
-          </button>
-          <span>{current + 1} / {slides.length}</span>
-          <button
-            onClick={() => goTo(current + 1)}
-            disabled={current === slides.length - 1}
-            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, opacity: current === slides.length - 1 ? 0.3 : 1 }}
-          >
-            →
-          </button>
-        </div>
-      </Panel>
+      <SlideNavigator current={current} onGoTo={goTo} />
     </InfiniteCanvas>
   );
 }
