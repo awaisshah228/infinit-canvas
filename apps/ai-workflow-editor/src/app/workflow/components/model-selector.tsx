@@ -37,8 +37,8 @@ function ModelSelector<T extends string>({
   ...props
 }: ModelSelectorProps<T>) {
   return (
-    <Select value={value} onValueChange={onChange} {...props}>
-      <SelectTrigger className="w-full nodrag">
+    <Select {...props} value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-full nodrag nopan nowheel" onPointerDownCapture={(e) => e.stopPropagation()}>
         <SelectValue placeholder="Select model" />
       </SelectTrigger>
       <SelectContent>

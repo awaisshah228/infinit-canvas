@@ -1,5 +1,5 @@
 'use client';
-import { type Node, NodeProps, Position, useReactFlow } from '@infinit-canvas/react';
+import { type Node, NodeProps, Position } from '@infinit-canvas/react';
 import { AlertCircle } from 'lucide-react';
 import { memo, useCallback } from 'react';
 
@@ -19,6 +19,7 @@ import {
   DEFAULT_TEXT_MODEL,
   TextModel,
 } from '../../openai-data';
+import { useAppStore } from '../../store';
 import { TextModelSelector } from '../model-selector';
 import { RunnableNodeHeader } from '../runnable-node-header';
 
@@ -36,22 +37,22 @@ export type GenerateTextNodeData = WorkflowNodeData & {
 // are variations on this CustomNode defined in the index.tsx file.
 // You can also create new components for each of your nodes for greater flexibility.
 function GenerateTextNode({ id, data }: NodeProps<GenerateTextNodeType>) {
-  const { updateNodeData } = useReactFlow();
+  const updateNodeData = useAppStore((s) => s.updateNodeData);
   const model = data?.config?.model ?? DEFAULT_TEXT_MODEL;
   const temperature = data?.config?.temperature ?? DEFAULT_TEMPERATURE;
 
   const onModelChange = useCallback(
     (newModel: TextModel) => {
-      updateNodeData(id, { config: { model: newModel } });
+      updateNodeData(id, { config: { ...data?.config, model: newModel } });
     },
-    [updateNodeData, id],
+    [updateNodeData, id, data?.config],
   );
 
   const onTemperatureChange = useCallback(
     (newTemperature: number) => {
-      updateNodeData(id, { config: { temperature: newTemperature } });
+      updateNodeData(id, { config: { ...data?.config, temperature: newTemperature } });
     },
-    [updateNodeData, id],
+    [updateNodeData, id, data?.config],
   );
 
   return (
@@ -74,10 +75,10 @@ function GenerateTextNode({ id, data }: NodeProps<GenerateTextNodeType>) {
         />
         <BaseNodeContent>
           <div className="flex flex-col gap-4">
-            <label className="text-sm">
+            <div className="text-sm">
               <span>Text Model:</span>
               <TextModelSelector value={model} onChange={onModelChange} />
-            </label>
+            </div>
             <div>
               <label className="text-sm">Temperature:</label>
               <Slider

@@ -102,16 +102,21 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
     }
     storeRef.current.onNodesChangeRef.current?.(dragChanges);
 
-    // Capture pointer on the node wrapper element (not the canvas wrap)
-    // so pointer events don't trigger canvas pan/zoom handlers
     const el = wrapperRef.current;
-    if (el) el.setPointerCapture(e.pointerId);
 
     // During drag: update DOM directly + send lightweight position to worker.
     // NO React state updates until drag ends — avoids 5000-node recomputation per frame.
     let latestPositions = null; // for final commit
+    let captured = false;
 
     const onMove = (ev) => {
+      // Capture pointer on first move (not on pointer down) so that
+      // interactive elements like Select dropdowns rendered in portals
+      // still receive pointer events when no drag occurs.
+      if (!captured && el) {
+        el.setPointerCapture(ev.pointerId);
+        captured = true;
+      }
       if (!dragRef.current) return;
       const cam = storeRef.current.cameraRef.current;
       const rect = wrap.getBoundingClientRect();
@@ -212,7 +217,7 @@ function NodeWrapper({ node, nodeType: NodeComponent }) {
       storeRef.current.onNodesChangeRef.current?.(changes);
       dragRef.current = null;
       latestPositions = null;
-      if (el) el.releasePointerCapture(ev.pointerId);
+      if (captured && el) el.releasePointerCapture(ev.pointerId);
       el?.removeEventListener('pointermove', onMove);
       el?.removeEventListener('pointerup', onUp);
     };

@@ -1,6 +1,6 @@
 'use client';
 
-import { type Node, NodeProps, Position, useReactFlow } from '@infinit-canvas/react';
+import { type Node, NodeProps, Position } from '@infinit-canvas/react';
 import { AlertCircle, Download } from 'lucide-react';
 import { memo, useCallback } from 'react';
 
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { IMAGE_SIZES, ImageModel, ImageSize } from '../../openai-data';
+import { useAppStore } from '../../store';
 import { ImageModelSelector } from '../model-selector';
 import { RunnableNodeHeader } from '../runnable-node-header';
 
@@ -40,7 +41,7 @@ export type GenerateImageNodeData = WorkflowNodeData & {
 // are variations on this CustomNode defined in the index.tsx file.
 // You can also create new components for each of your nodes for greater flexibility.
 function GenerateImageNode({ id, data }: NodeProps<GenerateImageNodeType>) {
-  const { updateNodeData } = useReactFlow();
+  const updateNodeData = useAppStore((s) => s.updateNodeData);
   const model = data?.config?.model ?? 'dall-e-2';
   const size = data?.config?.size ?? IMAGE_SIZES[model][0];
 
@@ -89,18 +90,18 @@ function GenerateImageNode({ id, data }: NodeProps<GenerateImageNodeType>) {
         />
         <BaseNodeContent>
           <div className="flex flex-col gap-4">
-            <label>
+            <div>
               <span className="text-sm">Image Model:</span>
               <ImageModelSelector value={model} onChange={onModelChange} />
-            </label>
+            </div>
 
-            <label>
+            <div>
               <span className="text-sm">Image Size:</span>
               <Select
                 value={data?.config?.size ?? size}
                 onValueChange={onSizeChange}
               >
-                <SelectTrigger className="input input-bordered w-full nodrag">
+                <SelectTrigger className="input input-bordered w-full nodrag nopan nowheel" onPointerDownCapture={(e) => e.stopPropagation()}>
                   <SelectValue placeholder="Image Size" />
                 </SelectTrigger>
 
@@ -112,7 +113,7 @@ function GenerateImageNode({ id, data }: NodeProps<GenerateImageNodeType>) {
                   ))}
                 </SelectContent>
               </Select>
-            </label>
+            </div>
           </div>
 
           <div className="flex w-full justify-between py-2 text-sm">
